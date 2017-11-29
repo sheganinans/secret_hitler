@@ -51,17 +51,3 @@ type game =
      , Game     : int
      , Step     : step
      , AltRules : bool }
-
-datatype action = NewGame
-
-sequence game_seq
-table games :
-      { Id         : int
-      , Nam        : option string
-      , Pass       : string
-      , LastAction : time}
-              PRIMARY KEY Id
-
-table users : { Client : client, Chan : channel action, Game : int }
-                  PRIMARY KEY Client,
-      CONSTRAINT Games FOREIGN KEY Game REFERENCES games(Id)

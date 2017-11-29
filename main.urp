@@ -1,8 +1,9 @@
 # database dbname=test
-# sql secret_dio.sql
+sql secret_dio.sql
 rewrite url Main/*
 
 $/list
 types
 gameplay
+frontend
 main

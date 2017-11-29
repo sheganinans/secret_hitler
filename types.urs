@@ -43,16 +43,3 @@ type game =
      , Game     : int
      , Step     : step
      , AltRules : bool }
-
-datatype action = NewGame
-
-table games :
-      { Id         : int
-      , Nam        : option string
-      , Pass       : string
-      , LastAction : time}
-
-table users :
-      { Client : client
-      , Chan   : channel action
-      , Game   : int }

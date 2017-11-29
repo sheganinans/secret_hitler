@@ -38,25 +38,23 @@ type deck = list side
 type decks = { Draw : deck, Discard : deck }
 
 fun shuffle_deck (deck : deck) : transaction deck =
-    (* Could be optimized, replace inner List.length calls with integer acc. *)
-    let fun go (shuffled, draw) : transaction deck =
-            if List.length draw = 1
-            then return (List.append draw shuffled)
-            else
-                let fun take_item_at (i : int) (deck : deck) : side * deck =
-                        let fun loop ((left, right) : deck * deck) : side * deck =
-                                case right of
-                                | (card :: rest) =>
-                                  if List.length left = i (* Replace *)
-                                  then (card, List.append left right)
-                                  else loop (card :: left, rest)
-                                | _ => error <xml>Shuffle: This should never happen.</xml>
-                        in loop ([], deck) end
-                in r <- rand;
-                   let val (card, rest) = take_item_at (mod r (List.length deck)) deck (* Replace *)
-                   in go (card :: shuffled, rest) end
-                end
-    in go ([], deck) end
+    let fun take_item_at (i : int) (deck : deck) : side * deck =
+            let fun loop ((left, right, len) : deck * deck * int) : side * deck =
+                    case right of
+                    | (card :: rest) =>
+                      if len = i
+                      then (card, List.append left right)
+                      else loop (card :: left, rest, len + 1)
+                    | _ => error <xml>Shuffle: This should never happen.</xml>
+            in loop ([], deck, 0) end
+
+        fun go (shuffled, draw, len) : transaction deck =
+            case len of
+            | 1 => return (List.append draw shuffled)
+            | _ => r <- rand;
+                   let val (card, rest) = take_item_at (mod r len) deck
+                   in go (card :: shuffled, rest, len - 1) end
+    in go ([], deck, List.length deck) end
 
 fun investigate_loyalty (game : game) (id : int) : side =
     if List.exists (fn player => player.Id = id) game.Liberals

@@ -19,13 +19,14 @@ and watch_game () =
 
 
 fun game_loop (initial_state : game) =
-    let fun loop_it (me,chan,state) =
+    let fun loop_it ((me,chan,state) : client * channel Frontend.action * source game) : transaction {} =
             let fun loop () =
-                    return ()
+                    sleep 1;
+                    loop ()
             in loop () end
     in me <- self;
        chan <- channel;
-       dml (INSERT INTO users (Client, Chan, Game) VALUES ({[me]}, {[chan]}, {[initial_state.Game]}));
+       (*dml (INSERT INTO users (Client, Chan, Game) VALUES ({[me]}, {[chan]}, {[initial_state.Game]}));*)
 
        state <- source initial_state;
        loop_it (me,chan,state) end
