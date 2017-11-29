@@ -10,7 +10,7 @@ type deck = list Types.side
 
 type decks = { Draw : deck, Discard : deck }
 
-val shuffle_deck : deck -> transaction deck
+val shuffle : deck -> transaction deck
 
 val investigate_loyalty : Types.game -> int -> Types.side
 

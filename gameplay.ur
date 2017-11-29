@@ -37,7 +37,7 @@ type deck = list side
 
 type decks = { Draw : deck, Discard : deck }
 
-fun shuffle_deck (deck : deck) : transaction deck =
+fun shuffle (deck : deck) : transaction deck =
     let fun take_item_at (i : int) (deck : deck) : side * deck =
             let fun loop ((left, right, len) : deck * deck * int) : side * deck =
                     case right of
