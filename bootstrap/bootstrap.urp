@@ -1,0 +1,2 @@
+rewrite style Bootstrap/table_ table
+rewrite style Bootstrap/* [-]

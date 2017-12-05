@@ -1,9 +1,27 @@
-# database dbname=test
-sql secret_dio.sql
+#allow env PASSWORD_SECRET
+#allow url /styles.css
+allow url https://code.jquery.com/jquery-2.1.4.min.js
+allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css
+#allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css
+database dbname=test hostaddr=127.0.0.1 user=postgres
+file /styles.css styles/styles.css
+onError Error_page.error_page
+rewrite style Styles/* [-]
 rewrite url Main/*
+script https://code.jquery.com/jquery-2.1.4.min.js
+sql secret_dio.sql
 
 $/list
+$/option
+bootstrap/bootstrap
+bootstrap/bootstrap3
+consts
+utils
 types
+error_page
+head
+auth
+admin
 gameplay
 frontend
 main
