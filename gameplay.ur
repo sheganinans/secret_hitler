@@ -1,3 +1,5 @@
+(*proof for expert of discord*)
+
 open Types
 
 fun next_president_closure (max : int) : transaction ({} -> transaction int) =
