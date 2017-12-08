@@ -1,4 +1,11 @@
-(*
+open Types
+open Tables
+
+cookie username_and_pass : $player_name_and_pass
+
+fun set_username_cookie (v : $player_name_and_pass) =
+    setCookie username_and_pass { Value = v, Expires = None, Secure = False }
+
 datatype role = Admin | Player
 
 val show_role =
@@ -6,28 +13,32 @@ val show_role =
                         Admin => "admin"
                       | Player => "player")
 
-fun require_login (r : role) : transaction {} =
+fun requires_login (redir_page : option string -> transaction page) (r : role) : transaction {} =
     let val err = "You must be logged in to do that."
     in c <- getCookie username_and_pass;
        case c of
-           None => error <xml>{[err]}</xml>
+           None => redirect (url (redir_page (Some err)))
          | Some c =>
-           u <- oneOrNoRows1 (SELECT player.PassHash
-                              FROM player
-                              WHERE player.Nam = {[c.Nam]});
-           case u of
-               None => error <xml>{[err]}</xml>
+           uo <- oneOrNoRows1 (SELECT player.PassHash
+                               FROM player
+                               WHERE player.Username = {[c.Username]}
+                                 AND player.PassHash = {[c.PassHash]});
+           case uo of
+               None => redirect (url (redir_page (Some err)))
              | Some u =>
-               if u.PassHash = Some c.PassHash
-               then let fun check b r = if b
-                                        then return ()
-                                        else error <xml>Must be {[show r]} to do that.</xml>
-                    in check (case r of Admin  => List.exists (fn n => n = c.Nam) Admin.admin_list
-                                      | Player => True) r
+               if u.PassHash = c.PassHash
+               then let fun check r b =
+                            if not b
+                            then redirect (url (redir_page
+                                                    (Some <| "Must be " ^ show r ^ "to do that.")))
+                            else return ()
+                    in check r (case r of Admin =>
+                                          List.exists (fn n => n = c.Username) Admin.admin_list
+                                        | Player => True)
                     end
-               else error <xml>{[err]}</xml>
+               else redirect (url (redir_page (Some err)))
     end
-
+(*
 fun requires_auth [a ::: Type] [b ::: Type]
       (f : string ->      (a -> b))
     : transaction (option (a -> b)) =

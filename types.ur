@@ -51,3 +51,11 @@ type game =
      , Game     : int
      , Step     : step
      , AltRules : bool }
+
+datatype action = NewGame
+
+(* Auth Types *)
+
+type player_name_and_pass =
+     [ Username = string
+     , PassHash = string ]

@@ -8,6 +8,7 @@ file /styles.css styles/styles.css
 onError Error_page.error_page
 rewrite style Styles/* [-]
 rewrite url Main/*
+rewrite url Frontend/*
 script https://code.jquery.com/jquery-2.1.4.min.js
 sql secret_dio.sql
 
@@ -18,10 +19,11 @@ bootstrap/bootstrap3
 consts
 utils
 types
+tables
 error_page
 head
-auth
 admin
+auth
 gameplay
 frontend
 main
