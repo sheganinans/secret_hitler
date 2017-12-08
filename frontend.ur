@@ -90,18 +90,18 @@ and login_page (msgo : option string) : transaction page =
 and new_room () : transaction page =
     requires_player_login ();
     let fun submit_new_room room_form : transaction page =
-            room_id   <- nextval room_seq;
-            let val link = Auth.basic_password_hash (show room_id)
-                val pass = if room_form.Private
-                           then Some (Auth.basic_password_hash link)
-                           else None
-            in  with_cookie_or_err
-                    "Frontend.new_room"
-                    (fn pt =>
-                        dml (INSERT INTO room (Room, OwnedBy, Nam, Link, Pass)
+            with_player_cookie_or_err
+                "Frontend.new_room"
+                (fn pt =>
+                    room_id   <- nextval room_seq;
+                    let val link = Auth.basic_password_hash (show room_id)
+                        val pass = if room_form.Private
+                                   then Some (Auth.basic_password_hash link)
+                                   else None
+                    in  dml (INSERT INTO room (Room, OwnedBy, Nam, Link, Pass)
                              VALUES ({[room_id]}, {[pt.Player]}, {[room_form.Nam]}, {[link]}, {[pass]}));
-                        view_room link)
-            end
+                        view_room link
+                    end)
     in  return <xml><body><form>
           <table>
             <tr>New Room</tr>
@@ -114,7 +114,7 @@ and new_room () : transaction page =
 
 and new_game () : transaction page =
     requires_player_login ();
-    with_cookie_or_err
+    with_player_cookie_or_err
         "Frontend.new_game"
         (fn pt =>
             ro <- queryL1 (SELECT *
@@ -122,16 +122,16 @@ and new_game () : transaction page =
                            WHERE room.OwnedBy = {[pt.Player]});
             return <xml></xml>)
 
-and with_cookie_or_err (err : string) (pf : $player_table -> transaction page)
-    : transaction page =
+and with_player_cookie_or_err (err : string)
+                              (pf : $player_table -> transaction page) : transaction page =
     un_cookie <- getCookie username_and_pass;
     let val err = err ^ ": This should never happen "
     in  case un_cookie of
             None       => login_page (Some <| err ^ "1")
           | Some un_pw =>
-            u <- oneOrNoRows1 (SELECT *
-                               FROM player
-                               WHERE player.Username = {[un_pw.Username]});
-            case u of None    => login_page (Some <| err ^ "2")
-                    | Some pt => pf pt
+            pto <- oneOrNoRows1 (SELECT *
+                                 FROM player
+                                 WHERE player.Username = {[un_pw.Username]});
+            case pto of None    => login_page (Some <| err ^ "2")
+                      | Some pt => pf pt
     end
