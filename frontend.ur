@@ -1,5 +1,5 @@
-open Tables
 open Auth
+open Tables
 
 fun game_loop (initial_state : Types.game) =
     let fun loop_it ((me,chan,state) : client * channel action * source Types.game) : transaction {} =
@@ -12,7 +12,8 @@ fun game_loop (initial_state : Types.game) =
        (*dml (INSERT INTO users (Client, Chan, Game) VALUES ({[me]}, {[chan]}, {[initial_state.Game]}));*)
 
        state <- source initial_state;
-       loop_it (me,chan,state) end
+       loop_it (me,chan,state)
+    end
 
 fun view_room (link : string) =
     return <xml>{[link]}</xml>
@@ -38,14 +39,14 @@ and signup_page () : transaction page =
                                    WHERE player.Username = {[signup.Username]});
 
                case uo of
-                   Some _ => login_page (Some "Username already taken!")
+                   Some u => login_page (Some <| "Username: " ^ u.Username ^ " already taken!")
                  | None =>
-                   set_username_cookie { Username = signup.Username, PassHash = pw_hs };
-
                    player_id <- nextval player_seq;
 
                    dml (INSERT INTO player (Player, Username, PassHash)
                         VALUES ({[player_id]}, {[signup.Username]}, {[pw_hs]}));
+
+                   set_username_cookie { Username = signup.Username, PassHash = pw_hs };
 
                    main_menu ()
             end
@@ -88,12 +89,10 @@ and login_page (msgo : option string) : transaction page =
     end
 
 and new_room () : transaction page =
-    requires_player_login ();
-    let fun submit_new_room room_form : transaction page =
-            with_player_cookie_or_err
-                "Frontend.new_room"
-                (fn pt =>
-                    room_id   <- nextval room_seq;
+    with_player_cookie_or_err "Frontend.new_room"
+        (fn pt =>
+            let fun submit_new_room room_form : transaction page =
+                    room_id <- nextval room_seq;
                     let val link = Auth.basic_password_hash (show room_id)
                         val pass = if room_form.Private
                                    then Some (Auth.basic_password_hash link)
@@ -101,29 +100,28 @@ and new_room () : transaction page =
                     in  dml (INSERT INTO room (Room, OwnedBy, Nam, Link, Pass)
                              VALUES ({[room_id]}, {[pt.Player]}, {[room_form.Nam]}, {[link]}, {[pass]}));
                         view_room link
-                    end)
-    in  return <xml><body><form>
-          <table>
-            <tr>New Room</tr>
-            <tr><th>Name</th><td><textbox{#Nam}/></td></tr>
-            <tr><th>Private?</th><td><checkbox{#Private}/></td></tr>
-            <tr><th/><td><submit action={submit_new_room}/></td></tr>
-          </table>
-        </form></body></xml>
-    end
+                    end
+            in  return <xml><body><form>
+                  <table>
+                    <tr>New Room</tr>
+                    <tr><th>Name</th><td><textbox{#Nam}/></td></tr>
+                    <tr><th>Private?</th><td><checkbox{#Private}/></td></tr>
+                    <tr><th/><td><submit action={submit_new_room}/></td></tr>
+                  </table>
+                </form></body></xml>
+            end)
 
 and new_game () : transaction page =
-    requires_player_login ();
-    with_player_cookie_or_err
-        "Frontend.new_game"
+    with_player_cookie_or_err "Frontend.new_game"
         (fn pt =>
-            ro <- queryL1 (SELECT *
-                           FROM room
-                           WHERE room.OwnedBy = {[pt.Player]});
-            return <xml></xml>)
+            rl <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
+            case rl of
+                [] => new_room ()
+              | rl => return <xml></xml>)
 
 and with_player_cookie_or_err (err : string)
                               (pf : $player_table -> transaction page) : transaction page =
+    requires_player_login ();
     un_cookie <- getCookie username_and_pass;
     let val err = err ^ ": This should never happen "
     in  case un_cookie of
