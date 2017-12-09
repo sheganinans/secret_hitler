@@ -74,17 +74,15 @@ and new_room () : transaction page = with_player_cookie_or_err "Frontend.new_roo
         let fun submit_new_room room_form : transaction page =
                 room_id <- nextval room_seq;
                 rand <- rand;
-                let val pass = if room_form.Private then Some rand else None
-                in  dml (INSERT INTO
-                           room (Room, OwnedBy, Nam, Pass, CurrentGame)
-                         VALUES
-                             ( {[room_id]}
-                             , {[pt.Player]}
-                             , {[room_form.RoomName]}
-                             , {[pass]}
-                             , 0 ));
-                    view_room room_id
-                end
+                dml (INSERT INTO
+                       room (Room, OwnedBy, Nam, Pass, CurrentGame)
+                     VALUES
+                       ( {[room_id]}
+                         , {[pt.Player]}
+                         , {[room_form.RoomName]}
+                         , {[if room_form.Private then Some rand else None]}
+                         , 0 ));
+                view_room room_id
         in  return <xml><body><form>
                 <table>
                   <tr>New Room</tr>
@@ -108,14 +106,13 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                         None => debug_and_show_err "Room doesn't exist!"
                       | Some r => if pt.Player <> r.OwnedBy
                                   then debug_and_show_err "You don't own that!"
-                                  else let fun submit_new_game (game_form : $game_time_table)
-                                               : transaction page =
+                                  else let fun submit_new_game (game_form : $game_time_table) : transaction page =
                                                roomo <- oneOrNoRows1 (SELECT *
                                                                       FROM game
                                                                       WHERE game.Room = {[r.Room]}
                                                                         AND game.Game = {[r.CurrentGame]});
-                                               case roomo of
-                                                   Some _ => view_room r.Room
+                                               (case roomo of
+                                                   Some _ => return ()
                                                  | None   =>
                                                    dml (INSERT INTO
                                                           game (Game
@@ -133,8 +130,8 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                                                             , {[game_form.GovVoteTime]}
                                                             , {[game_form.PresDisTime]}
                                                             , {[game_form.ChanEnaTime]}
-                                                            , {[game_form.ExecActTime]}));
-                                                   view_room r.Room
+                                                            , {[game_form.ExecActTime]})));
+                                               view_room r.Room
                                        in  return <xml><body><form>
                                                <table>
                                                  <tr>New Game: Time Table</tr>
