@@ -6,8 +6,7 @@ fun main_menu () : transaction page =
     return <xml><body><table>
         <tr><td><div><a link={new_room ()}>New Room </a></div></td></tr>
         <tr><td><div><a link={new_game ()}>New Game</a></div></td></tr>
-        <tr><td><div><a link={join_room ()}>Join Room</a></div></td></tr>
-        <tr><td><div><a link={view_room 0}>View Rooms</a></div></td></tr>
+        <tr><td><div><a link={view_room None}>View Rooms</a></div></td></tr>
       </table></body></xml>
 
 and requires_player_login () = requires_login login_page Player
@@ -82,7 +81,7 @@ and new_room () : transaction page = with_player_cookie_or_err "Frontend.new_roo
                          , {[room_form.RoomName]}
                          , {[if room_form.Private then Some rand else None]}
                          , 0 ));
-                view_room room_id
+                view_room (Some room_id)
         in  return <xml><body><form>
                 <table>
                   <tr>New Room</tr>
@@ -99,9 +98,7 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                         let val frontend_err = "Frontend.new_game: {" ^ pt.Username ^ "}: " ^ err
                         in  debug frontend_err; return <xml>{[frontend_err]}</xml>
                         end
-                in  r <- oneOrNoRows1 (SELECT *
-                                       FROM room
-                                       WHERE room.Room = {[room_id]});
+                in  r <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
                     case r of
                         None => debug_and_show_err "Room doesn't exist!"
                       | Some r => if pt.Player <> r.OwnedBy
@@ -131,7 +128,7 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                                                             , {[game_form.PresDisTime]}
                                                             , {[game_form.ChanEnaTime]}
                                                             , {[game_form.ExecActTime]})));
-                                               view_room r.Room
+                                               view_room (Some r.Room)
                                        in  return <xml><body><form>
                                                <table>
                                                  <tr>New Game: Time Table</tr>
@@ -169,11 +166,21 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                 return <xml><body>New Game<br/>{room_list}</body></xml>
         end)
 
-and join_room () : transaction page =
-    return <xml>Join Room</xml>
-
-and view_room (link : int) =
-    return <xml>{[show link]}</xml>
+and view_room (room_id_o : option int) : transaction page = with_player_cookie_or_err "Frontend.view_room"
+    (fn pt =>
+        case room_id_o of
+            Some room_id => return <xml></xml>
+          | None =>
+            rl <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
+            case rl of
+                [] => new_room ()
+              | rl =>
+                room_list <- List.mapXM (fn r =>
+                                            return <xml><tr><td>
+                                              <a link={view_room (Some r.Room)}>{[r.Nam]}</a>
+                                            </td></tr></xml>) rl;
+                return <xml><body>View Rooms<br/>
+                  <table>{room_list}</table></body></xml>)
 
 and with_player_cookie_or_err (err : string)
                               (pf : $player_table -> transaction page) : transaction page =
