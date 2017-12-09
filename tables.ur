@@ -9,16 +9,24 @@ table player : $player_table PRIMARY KEY Player
 
 type room_link_pass =
     [ Room = int
-    , Link = string
-    , Pass = option string ]
+    , Pass = option int ]
 
-type room_table = [ Nam  = string, OwnedBy = int ] ++ room_link_pass
+type room_table =
+     [ Nam  = string
+     , OwnedBy = int ]
+    ++ room_link_pass
+    ++ [ CurrentGame = int ]
 
 sequence room_seq
 table room :
       $room_table PRIMARY KEY Room
-    , CONSTRAINT UniqueRoomLink UNIQUE Link
     , CONSTRAINT OwnedByPlayer FOREIGN KEY OwnedBy REFERENCES player (Player)
+
+table mods :
+      { Room   : int
+      , Player : int
+      } CONSTRAINT RoomExists FOREIGN KEY Room   REFERENCES room   (Room)
+    , CONSTRAINT PlayerExists FOREIGN KEY Player REFERENCES player (Player)
 
 table bans :
       { Room   : int
@@ -28,15 +36,19 @@ table bans :
 
 type game_id = [ Game = int, Room = int ]
 
-type game_table =
-     game_id ++
-     [ CurrentTurn = int
-     , ChanNomTime = int
-     , GovVoteTime = int
-     , PresDisTime = int
-     , ChanEnaTime = int
-     , ExecActTime = int
+type game_time_table =
+     [ ChanNomTime = float
+     , GovVoteTime = float
+     , PresDisTime = float
+     , ChanEnaTime = float
+     , ExecActTime = float
      ]
+
+type game_table =
+     game_id
+    ++ [ CurrentTurn = int ]
+    ++ game_time_table
+
 
 sequence game_seq
 table game :
