@@ -99,35 +99,42 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                         in  debug frontend_err; return <xml>{[frontend_err]}</xml>
                         end
                 in  r <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
+                    m <- oneOrNoRows1 (SELECT *
+                                       FROM mod
+                                       WHERE mod.Room   = {[room_id]}
+                                         AND mod.Player = {[pt.Player]});
                     case r of
                         None => debug_and_show_err "Room doesn't exist!"
-                      | Some r => if pt.Player <> r.OwnedBy
+                      | Some r => if pt.Player <> r.OwnedBy && m = None
                                   then debug_and_show_err "You don't own that!"
-                                  else let fun submit_new_game (game_form : $game_time_table) : transaction page =
-                                               roomo <- oneOrNoRows1 (SELECT *
-                                                                      FROM game
-                                                                      WHERE game.Room = {[r.Room]}
-                                                                        AND game.Game = {[r.CurrentGame]});
-                                               (case roomo of
+                                  else let fun submit_new_game
+                                                   (game_form : $game_time_table) : transaction page =
+                                               room_o <-
+                                                   oneOrNoRows1 (SELECT *
+                                                                 FROM game
+                                                                 WHERE game.Room = {[r.Room]}
+                                                                   AND game.Game = {[r.CurrentGame]});
+                                               (case room_o of
                                                    Some _ => return ()
                                                  | None   =>
-                                                   dml (INSERT INTO
-                                                          game (Game
+                                                   dml (INSERT INTO game
+                                                            ( Game
                                                             , Room
-                                                            , CurrentTurn
                                                             , ChanNomTime
                                                             , GovVoteTime
                                                             , PresDisTime
                                                             , ChanEnaTime
-                                                            , ExecActTime)
-                                                        VALUES ({[r.CurrentGame]}
+                                                            , ExecActTime
+                                                            , CurrentTurn)
+                                                        VALUES
+                                                            ( {[r.CurrentGame]}
                                                             , {[r.Room]}
-                                                            , 0
                                                             , {[game_form.ChanNomTime]}
                                                             , {[game_form.GovVoteTime]}
                                                             , {[game_form.PresDisTime]}
                                                             , {[game_form.ChanEnaTime]}
-                                                            , {[game_form.ExecActTime]})));
+                                                            , {[game_form.ExecActTime]}
+                                                            , {[Some 0]})));
                                                view_room (Some r.Room)
                                        in  return <xml><body><form>
                                                <table>
@@ -166,13 +173,13 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                 return <xml><body>New Game<br/>{room_list}</body></xml>
         end)
 
-and view_room (room_id_o : option int) : transaction page = with_player_cookie_or_err "Frontend.view_room"
+and view_room (room_id_o : option int)
+    : transaction page = with_player_cookie_or_err "Frontend.view_room"
     (fn pt =>
         case room_id_o of
-            Some room_id => return <xml></xml>
-          | None =>
+            None =>
             rl <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
-            case rl of
+            (case rl of
                 [] => new_room ()
               | rl =>
                 room_list <- List.mapXM (fn r =>
@@ -181,6 +188,31 @@ and view_room (room_id_o : option int) : transaction page = with_player_cookie_o
                                             </td></tr></xml>) rl;
                 return <xml><body>View Rooms<br/>
                   <table>{room_list}</table></body></xml>)
+          | Some room_id =>
+            ro <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
+            case ro of
+                None => new_room ()
+              | Some rt =>
+                room_user_relation_o <-
+                    oneOrNoRows1 (SELECT *
+                                  FROM room_user
+                                  WHERE room_user.Player = {[pt.Player]}
+                                    AND room_user.Room   = {[room_id]});
+                case room_user_relation_o of
+                    None => join_room room_id
+                  | Some _ =>
+                    is_banned <-
+                        oneOrNoRows1 (SELECT *
+                                      FROM ban
+                                      WHERE ban.Player = {[pt.Player]}
+                                        AND ban.Room   = {[room_id]});
+                    case is_banned of
+                        Some _ => banned_page room_id
+                      | None => return <xml></xml>)
+
+and join_room room_id : transaction page = return <xml></xml>
+
+and banned_page (room_id : int) : transaction page = return <xml>Banned!</xml>
 
 and with_player_cookie_or_err (err : string)
                               (pf : $player_table -> transaction page) : transaction page =
@@ -189,8 +221,7 @@ and with_player_cookie_or_err (err : string)
     let val err = err ^ ": This should never happen: "
         fun debug_and_redir_to_login inner_err =
             let val frontend_err_msg = err ^ inner_err
-            in  debug frontend_err_msg;
-                login_page (Some frontend_err_msg)
+            in  debug frontend_err_msg; login_page (Some frontend_err_msg)
             end
     in  case un_cookie of
             None       => debug_and_redir_to_login "No cookie!"
