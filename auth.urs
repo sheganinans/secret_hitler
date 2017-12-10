@@ -1,6 +1,6 @@
 cookie username_and_pass : $$Types.player_name_and_pass
 
-val set_username_cookie : $Types.player_name_and_pass -> transaction {}
+val set_username_cookie : string -> string -> transaction {}
 
 datatype role = Admin | Player
 
@@ -10,8 +10,7 @@ datatype role = Admin | Player
 *)
 
 val check_login : role -> transaction (Types.result
-                                           { Cookie      : $Types.player_name_and_pass
-                                           , PlayerTable : $Tables.player_table }
+                                           $Tables.player_table
                                            string)
 
 val basic_password_hash : string -> string

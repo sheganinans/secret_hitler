@@ -3,8 +3,10 @@ open Tables
 
 cookie username_and_pass : $player_name_and_pass
 
-fun set_username_cookie (v : $player_name_and_pass) =
-    setCookie username_and_pass { Value = v, Expires = None, Secure = False }
+fun set_username_cookie u p =
+    setCookie username_and_pass { Value = { Username = u, PassHash = p}
+                                , Expires = None
+                                , Secure = False }
 
 datatype role = Admin | Player
 
@@ -13,26 +15,24 @@ val show_role =
                         Admin => "admin"
                       | Player => "player")
 
-fun check_login (r : role) : transaction (result { Cookie      : $player_name_and_pass
-                                                 , PlayerTable : $player_table }
-                                                 string) =
-    let val err = "You must be logged in to do that."
+fun check_login (r : role) : transaction (result $player_table string) =
+    let val err = "Please login."
     in c <- getCookie username_and_pass;
        case c of
-           None   => return (Err <| err ^ "No cookie!")
+           None   => return (Err err)
          | Some c =>
-           uo <- oneOrNoRows1 (SELECT *
+           p_o <- oneOrNoRows1 (SELECT *
                                FROM player
                                WHERE player.Username = {[c.Username]}
                                  AND player.PassHash = {[c.PassHash]});
-           case uo of
-               None   => return (Err <| err ^ "No such user!")
-             | Some u =>
-               if u.PassHash = c.PassHash
+           case p_o of
+               None   => return (Err err)
+             | Some p =>
+               if p.PassHash = c.PassHash
                then let fun check r b =
                             if not b
                             then return (Err <| "Must be " ^ show r ^ "to do that.")
-                            else return (Ok {Cookie = c, PlayerTable = u})
+                            else return (Ok p)
                     in check r (case r of Admin =>
                                           List.exists (fn n => n = c.Username) Admin.admin_list
                                         | Player => True)

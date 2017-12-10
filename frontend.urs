@@ -1,1 +1,1 @@
-val main_menu   : {} -> transaction page
+val main_menu : option string -> transaction page

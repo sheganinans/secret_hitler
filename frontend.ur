@@ -1,16 +1,17 @@
 open Auth
 open Tables
 
-fun main_menu () : transaction page =
-    check <- check_login Player;
-    case check of
-        Err err => login_page (Some err)
-      | Ok _ =>
-        return <xml><body><table>
-          <tr><td><div><a link={new_room ()}>New Room </a></div></td></tr>
-          <tr><td><div><a link={new_game ()}>New Game</a></div></td></tr>
-          <tr><td><div><a link={view_room None}>View Rooms</a></div></td></tr>
-        </table></body></xml>
+fun main_menu (msgo : option string) : transaction page = player_page
+    (fn _ =>
+        return <xml><body>
+          {case msgo of
+               None => <xml></xml>
+             | Some msg => <xml>{[msg]}<br/></xml>}
+          <table>
+            <tr><td><div><a link={new_room ()}>New Room </a></div></td></tr>
+            <tr><td><div><a link={new_game ()}>New Game</a></div></td></tr>
+            <tr><td><div><a link={view_room None}>View Rooms</a></div></td></tr>
+          </table></body></xml>)
 
 and signup_page () : transaction page =
     let fun submit_signup (signup : $player_name_and_pass) : transaction page =
@@ -27,9 +28,9 @@ and signup_page () : transaction page =
                    dml (INSERT INTO player (Player, Username, PassHash)
                         VALUES ({[player_id]}, {[signup.Username]}, {[pw_hs]}));
 
-                   set_username_cookie { Username = signup.Username, PassHash = pw_hs };
+                   set_username_cookie signup.Username pw_hs;
 
-                   main_menu ()
+                   main_menu None
             end
     in  return <xml><body><form>
             <table>
@@ -50,8 +51,8 @@ and login_page (msgo : option string) : transaction page =
                     None => login_page (Some "Login Failed!")
                   | Some hp =>
                     if hp.PassHash = pw_hs
-                    then set_username_cookie { Username = login.Username, PassHash = pw_hs };
-                         main_menu ()
+                    then set_username_cookie login.Username pw_hs;
+                         main_menu None
                     else login_page (Some "Login Failed!")
             end
     in  return <xml><body>
@@ -69,7 +70,7 @@ and login_page (msgo : option string) : transaction page =
               </table></form></body></xml>
     end
 
-and new_room () : transaction page = with_player_cookie_or_err "Frontend.new_room"
+and new_room () : transaction page = player_page
     (fn pt =>
         let fun submit_new_room room_form : transaction page =
                 room_id <- nextval room_seq;
@@ -92,7 +93,7 @@ and new_room () : transaction page = with_player_cookie_or_err "Frontend.new_roo
                 </table></form></body></xml>
         end)
 
-and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_game"
+and new_game () : transaction page = player_page
     (fn pt =>
         let fun submit_choose_room room_id {} : transaction page =
                 let fun debug_and_show_err err =
@@ -174,8 +175,7 @@ and new_game () : transaction page = with_player_cookie_or_err "Frontend.new_gam
                 return <xml><body>New Game<br/>{room_list}</body></xml>
         end)
 
-and view_room (room_id_o : option int)
-    : transaction page = with_player_cookie_or_err "Frontend.view_room"
+and view_room (room_id_o : option int) : transaction page = player_page
     (fn pt =>
         case room_id_o of
             None =>
@@ -211,22 +211,23 @@ and view_room (room_id_o : option int)
                         Some _ => banned_page room_id
                       | None => return <xml></xml>)
 
-and join_room room_id : transaction page = return <xml></xml>
+and join_room room_id : transaction page = player_page
+    (fn _ =>
+        return <xml></xml>)
 
-and banned_page (room_id : int) : transaction page = return <xml>Banned!</xml>
+and banned_page (room_id : int) : transaction page =
+    room_name_o <- oneOrNoRows1 (SELECT room.Nam
+                                 FROM room
+                                 WHERE room.Room = {[room_id]});
+    main_menu <| case room_name_o of
+                     None => None
+                   | Some room => Some <| "Banned from room: " ^ room.Nam
 
-and with_player_cookie_or_err (err : string)
-                                (pf : $player_table -> transaction page) : transaction page =
+and player_page (pf : $player_table -> transaction page) : transaction page =
     check <- Auth.check_login Player;
-    let val err = err ^ ": This should never happen: "
-        fun debug_and_redir_to_login inner_err =
-            let val frontend_err_msg = err ^ inner_err
-            in  debug frontend_err_msg; login_page (Some frontend_err_msg)
-            end
-    in  case check of
-            Err err => debug_and_redir_to_login err
-          | Ok ret => pf ret.PlayerTable
-    end
+    case check of
+        Err err => login_page (Some err)
+      | Ok   pt => pf pt
 
 fun game_loop (initial_state : Types.game) =
     let fun loop_it ((me,chan,state) : client * channel action * source Types.game) : transaction {} =
