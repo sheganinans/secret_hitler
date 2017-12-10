@@ -2,14 +2,15 @@ open Auth
 open Tables
 
 fun main_menu () : transaction page =
-    requires_player_login ();
-    return <xml><body><table>
-        <tr><td><div><a link={new_room ()}>New Room </a></div></td></tr>
-        <tr><td><div><a link={new_game ()}>New Game</a></div></td></tr>
-        <tr><td><div><a link={view_room None}>View Rooms</a></div></td></tr>
-      </table></body></xml>
-
-and requires_player_login () = requires_login login_page Player
+    check <- check_login Player;
+    case check of
+        Err err => login_page (Some err)
+      | Ok _ =>
+        return <xml><body><table>
+          <tr><td><div><a link={new_room ()}>New Room </a></div></td></tr>
+          <tr><td><div><a link={new_game ()}>New Game</a></div></td></tr>
+          <tr><td><div><a link={view_room None}>View Rooms</a></div></td></tr>
+        </table></body></xml>
 
 and signup_page () : transaction page =
     let fun submit_signup (signup : $player_name_and_pass) : transaction page =
@@ -215,22 +216,16 @@ and join_room room_id : transaction page = return <xml></xml>
 and banned_page (room_id : int) : transaction page = return <xml>Banned!</xml>
 
 and with_player_cookie_or_err (err : string)
-                              (pf : $player_table -> transaction page) : transaction page =
-    requires_player_login ();
-    un_cookie <- getCookie username_and_pass;
+                                (pf : $player_table -> transaction page) : transaction page =
+    check <- Auth.check_login Player;
     let val err = err ^ ": This should never happen: "
         fun debug_and_redir_to_login inner_err =
             let val frontend_err_msg = err ^ inner_err
             in  debug frontend_err_msg; login_page (Some frontend_err_msg)
             end
-    in  case un_cookie of
-            None       => debug_and_redir_to_login "No cookie!"
-          | Some un_pw =>
-            pto <- oneOrNoRows1 (SELECT *
-                                 FROM player
-                                 WHERE player.Username = {[un_pw.Username]});
-            case pto of None    => debug_and_redir_to_login "No Player!"
-                      | Some pt => pf pt
+    in  case check of
+            Err err => debug_and_redir_to_login err
+          | Ok ret => pf ret.PlayerTable
     end
 
 fun game_loop (initial_state : Types.game) =

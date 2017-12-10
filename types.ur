@@ -59,3 +59,9 @@ datatype action = NewGame
 type player_name_and_pass =
      [ Username = string
      , PassHash = string ]
+
+(* Result Type *)
+
+datatype result ok err =
+     | Ok  of ok
+     | Err of err

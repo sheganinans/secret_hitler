@@ -13,31 +13,33 @@ val show_role =
                         Admin => "admin"
                       | Player => "player")
 
-fun requires_login (redir_page : option string -> transaction page) (r : role) : transaction {} =
+fun check_login (r : role) : transaction (result { Cookie      : $player_name_and_pass
+                                                 , PlayerTable : $player_table }
+                                                 string) =
     let val err = "You must be logged in to do that."
     in c <- getCookie username_and_pass;
        case c of
-           None => redirect (url (redir_page (Some err)))
+           None   => return (Err <| err ^ "No cookie!")
          | Some c =>
-           uo <- oneOrNoRows1 (SELECT player.PassHash
+           uo <- oneOrNoRows1 (SELECT *
                                FROM player
                                WHERE player.Username = {[c.Username]}
                                  AND player.PassHash = {[c.PassHash]});
            case uo of
-               None => redirect (url (redir_page (Some err)))
+               None   => return (Err <| err ^ "No such user!")
              | Some u =>
                if u.PassHash = c.PassHash
                then let fun check r b =
                             if not b
-                            then redirect (url (redir_page
-                                                    (Some <| "Must be " ^ show r ^ "to do that.")))
-                            else return ()
+                            then return (Err <| "Must be " ^ show r ^ "to do that.")
+                            else return (Ok {Cookie = c, PlayerTable = u})
                     in check r (case r of Admin =>
                                           List.exists (fn n => n = c.Username) Admin.admin_list
                                         | Player => True)
                     end
-               else redirect (url (redir_page (Some err)))
+               else return (Err err)
     end
+
 (*
 fun requires_auth [a ::: Type] [b ::: Type]
       (f : string ->      (a -> b))
