@@ -1,4 +1,4 @@
-cookie username_and_pass : $$Types.player_name_and_pass
+cookie username_and_pass : $$Types.player_name_and_pass_t
 
 val set_username_cookie : string -> string -> transaction {}
 

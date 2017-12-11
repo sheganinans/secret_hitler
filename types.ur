@@ -56,9 +56,11 @@ datatype action = NewGame
 
 (* Auth Types *)
 
-type player_name_and_pass =
+type player_name_and_pass_t =
      [ Username = string
      , PassHash = string ]
+
+type player_name_and_pass = $player_name_and_pass_t
 
 (* Result Type *)
 

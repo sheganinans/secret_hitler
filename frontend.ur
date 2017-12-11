@@ -11,17 +11,13 @@ fun main_menu (msgo : option string) : transaction page = player_page
             <tr><td><div><a link={new_room ()}>New Room </a></div></td></tr>
             <tr><td><div><a link={new_game ()}>New Game</a></div></td></tr>
             <tr><td><div><a link={view_room None}>View Rooms</a></div></td></tr>
-          </table>
-          {if List.exists (fn n => n = pt.Username) admin_list
-           then <xml>
-             <br/>
-             <form>
-               <submit value="Admin" action={admin_test_page}/>
-             </form></xml>
-           else <xml></xml>}</body></xml>)
+            {if List.exists (fn n => n = pt.Username) admin_list
+             then <xml><tr><td><div><a link={admin_test_page ()}>Admin</a></div></td></tr></xml>
+             else <xml></xml>}
+          </table></body></xml>)
 
 and signup_form () : xbody =
-    let fun submit_signup (signup : $player_name_and_pass) : transaction page =
+    let fun submit_signup (signup : player_name_and_pass) : transaction page =
             let val pw_hs = Auth.basic_password_hash signup.PassHash
             in uo <- oneOrNoRows1 (SELECT player.Username
                                    FROM player
@@ -51,7 +47,7 @@ and signup_form () : xbody =
 and signup_page () : transaction page = return <xml><body>{signup_form ()}</body></xml>
 
 and login_form (msgo : option string) : xbody =
-    let fun submit_login (login : $player_name_and_pass) : transaction page =
+    let fun submit_login (login : player_name_and_pass) : transaction page =
             let val pw_hs = Auth.basic_password_hash login.PassHash
             in  hpo <- oneOrNoRows1 (SELECT player.PassHash
                                      FROM player
@@ -234,9 +230,7 @@ and banned_page (room_id : int) : transaction page =
     room_name_o <- oneOrNoRows1 (SELECT room.Nam
                                  FROM room
                                  WHERE room.Room = {[room_id]});
-    main_menu <| case room_name_o of
-                     None => None
-                   | Some room => Some <| "Banned from room: " ^ room.Nam
+    main_menu <| Option.mp (fn room => "Banned from room: " ^ room.Nam) room_name_o
 
 and role_page_closure (role : role)
                       (pf : player_table -> transaction page)

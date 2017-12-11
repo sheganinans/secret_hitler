@@ -1,7 +1,7 @@
 open Types
 
 type player_table_t =
-     [ Player = int ] ++ player_name_and_pass
+     [ Player = int ] ++ player_name_and_pass_t
 
 type player_table = $player_table_t
 

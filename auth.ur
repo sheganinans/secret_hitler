@@ -1,7 +1,7 @@
 open Types
 open Tables
 
-cookie username_and_pass : $player_name_and_pass
+cookie username_and_pass : $player_name_and_pass_t
 
 fun set_username_cookie u p =
     setCookie username_and_pass { Value = { Username = u, PassHash = p}
