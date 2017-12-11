@@ -3,18 +3,19 @@ open Tables
 
 fun main_menu (msgo : option string) : transaction page = player_page
     (fn pt =>
-        return <xml><body>
+        return <xml><body><table>
           {case msgo of
-               None => <xml></xml>
-             | Some msg => <xml>{[msg]}<br/></xml>}
-          <table>
-            <tr><td><div><a link={new_room ()}>New Room </a></div></td></tr>
-            <tr><td><div><a link={new_game ()}>New Game</a></div></td></tr>
-            <tr><td><div><a link={view_room None}>View Rooms</a></div></td></tr>
-            {if List.exists (fn n => n = pt.Username) admin_list
-             then <xml><tr><td><div><a link={admin_test_page ()}>Admin</a></div></td></tr></xml>
-             else <xml></xml>}
-          </table></body></xml>)
+               None     => <xml></xml>
+             | Some msg => <xml><tr><td>{[msg]}</td></tr></xml>}
+          <tr><td>
+            <table>
+              <tr><td><a link={new_room ()}>New Room</a></td></tr>
+              <tr><td><a link={new_game ()}>New Game</a></td></tr>
+              <tr><td><a link={view_room None}>View Rooms</a></td></tr>
+              {if is_admin pt.Username
+               then <xml><tr><td><a link={admin_test_page ()}>Admin</a></td></tr></xml>
+               else <xml></xml>}
+            </table></td></tr></table></body></xml>)
 
 and signup_form () : xbody =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
@@ -61,18 +62,20 @@ and login_form (msgo : option string) : xbody =
                     else login_page (Some "Login Failed!")
             end
     in  <xml>
-          <a link={signup_page ()}>Need to signup?</a>
-          <br/>
+          <table>
+          <tr><td><a link={signup_page ()}>Need to signup?</a></td></tr>
           {case msgo of
                None => <xml></xml>
-             | Some msg => <xml>{[msg]}<br/></xml>}
-          <form>
-            <table>
-              <tr>Login!</tr>
-              <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
-              <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
-              <tr><th/><td><submit action={submit_login}/></td></tr>
-          </table></form></xml>
+             | Some msg => <xml><tr><td>{[msg]}</td></tr></xml>}
+          <tr><td>
+            <form>
+              <table>
+                <tr>Login!</tr>
+                <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
+                <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
+                <tr><th/><td><submit action={submit_login}/></td></tr>
+              </table></form>
+          </td></tr></table></xml>
     end
 
 and login_page (msgo : option string) : transaction page = return <xml><body>{login_form msgo}</body></xml>
@@ -85,10 +88,10 @@ and new_room_form (pt : player_table) : xbody =
                    room (Room, OwnedBy, Nam, Pass, CurrentGame)
                  VALUES
                    ( {[room_id]}
-                     , {[pt.Player]}
-                     , {[room_form.RoomName]}
-                     , {[if room_form.Private then Some rand else None]}
-                     , 0 ));
+                   , {[pt.Player]}
+                   , {[room_form.RoomName]}
+                   , {[if room_form.Private then Some rand else None]}
+                   , 0 ));
             view_room (Some room_id)
     in  <xml><form>
           <table>
@@ -114,22 +117,22 @@ and submit_new_game
        | None   =>
          dml (INSERT INTO game
                 ( Game
-                  , Room
-                  , ChanNomTime
-                  , GovVoteTime
-                  , PresDisTime
-                  , ChanEnaTime
-                  , ExecActTime
-                  , CurrentTurn)
+                , Room
+                , ChanNomTime
+                , GovVoteTime
+                , PresDisTime
+                , ChanEnaTime
+                , ExecActTime
+                , CurrentTurn)
               VALUES
                 ( {[room.CurrentGame]}
-                  , {[room.Room]}
-                  , {[game_form.ChanNomTime]}
-                  , {[game_form.GovVoteTime]}
-                  , {[game_form.PresDisTime]}
-                  , {[game_form.ChanEnaTime]}
-                  , {[game_form.ExecActTime]}
-                  , {[Some 0]})));
+                , {[room.Room]}
+                , {[game_form.ChanNomTime]}
+                , {[game_form.GovVoteTime]}
+                , {[game_form.PresDisTime]}
+                , {[game_form.ChanEnaTime]}
+                , {[game_form.ExecActTime]}
+                , {[Some 0]})));
     view_room (Some room.Room)
 
 and new_game_form (r : room_table) : xbody =
@@ -167,14 +170,9 @@ and choose_room_form (pt : player_table) (room_list : list room_table) : xbody =
                               else return <xml><body>{new_game_form r}</body></xml>
             end
     in  List.mapX
-            (fn r =>
-                <xml><form>
-                  <table>
-                    <tr><td>
-                      <submit
-                        value={r.Nam}
-                        action={submit_choose_room r.Room}/></td></tr>
-                  </table></form></xml>)
+            (fn r => <xml><form><submit
+                                  value={r.Nam}
+                                  action={submit_choose_room r.Room}/></form></xml>)
             room_list
     end
 
@@ -203,7 +201,7 @@ and view_room (room_id_o : option int) : transaction page = player_page
           | Some room_id =>
             ro <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
             case ro of
-                None => new_room ()
+                None    => new_room ()
               | Some rt =>
                 room_user_relation_o <-
                     oneOrNoRows1 (SELECT *
@@ -211,7 +209,7 @@ and view_room (room_id_o : option int) : transaction page = player_page
                                   WHERE room_user.Player = {[pt.Player]}
                                     AND room_user.Room   = {[room_id]});
                 case room_user_relation_o of
-                    None => join_room room_id
+                    None   => join_room room_id
                   | Some _ =>
                     is_banned <-
                         oneOrNoRows1 (SELECT *
@@ -219,18 +217,12 @@ and view_room (room_id_o : option int) : transaction page = player_page
                                       WHERE ban.Player = {[pt.Player]}
                                         AND ban.Room   = {[room_id]});
                     case is_banned of
-                        Some _ => banned_page room_id
-                      | None => return <xml></xml>)
+                        Some _ => main_menu (Some <| "Banned from room: " ^ rt.Nam)
+                      | None   => return <xml></xml>)
 
 and join_room room_id : transaction page = player_page
     (fn _ =>
         return <xml></xml>)
-
-and banned_page (room_id : int) : transaction page =
-    room_name_o <- oneOrNoRows1 (SELECT room.Nam
-                                 FROM room
-                                 WHERE room.Room = {[room_id]});
-    main_menu <| Option.mp (fn room => "Banned from room: " ^ room.Nam) room_name_o
 
 and role_page_closure (role : role)
                       (pf : player_table -> transaction page)
