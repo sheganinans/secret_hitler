@@ -9,8 +9,10 @@ datatype role = Admin | Player
                     -> transaction (option (a -> b))
 *)
 
+val admin_list : list string
+
 val check_login : role -> transaction (Types.result
-                                           $Tables.player_table
+                                           Tables.player_table
                                            string)
 
 val basic_password_hash : string -> string

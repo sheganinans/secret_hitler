@@ -15,7 +15,9 @@ val show_role =
                         Admin => "admin"
                       | Player => "player")
 
-fun check_login (r : role) : transaction (result $player_table string) =
+val admin_list = "sheganinans" :: []
+
+fun check_login (r : role) : transaction (result player_table string) =
     let val err = "Please login."
     in c <- getCookie username_and_pass;
        case c of
@@ -31,10 +33,10 @@ fun check_login (r : role) : transaction (result $player_table string) =
                if p.PassHash = c.PassHash
                then let fun check r b =
                             if not b
-                            then return (Err <| "Must be " ^ show r ^ "to do that.")
+                            then return (Err <| "Must be " ^ show r ^ " to do that.")
                             else return (Ok p)
                     in check r (case r of Admin =>
-                                          List.exists (fn n => n = c.Username) Admin.admin_list
+                                          List.exists (fn n => n = c.Username) admin_list
                                         | Player => True)
                     end
                else return (Err err)

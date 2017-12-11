@@ -23,7 +23,6 @@ tables
 instances
 error_page
 head
-admin
 auth
 gameplay
 frontend
