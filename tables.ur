@@ -15,8 +15,8 @@ type room_pass_t =
 
 type room_table_t =
     room_pass_t
-  ++ [ Nam  = string
-     , OwnedBy = int
+  ++ [ Nam         = string
+     , OwnedBy     = int
      , CurrentGame = int ]
 
 type room_table = $room_table_t
@@ -33,7 +33,7 @@ type room_player_relation_t =
 
 type room_player_relation = $room_player_relation_t
 
-table room_user :
+table room_player :
       room_player_relation_t PRIMARY KEY (Room, Player)
     , CONSTRAINT   RoomExists FOREIGN KEY Room   REFERENCES room   (Room)
     , CONSTRAINT PlayerExists FOREIGN KEY Player REFERENCES player (Player)
@@ -42,13 +42,13 @@ table mod :
       room_player_relation_t
        CONSTRAINT IsRoomPlayerRelation
        FOREIGN KEY (Room, Player)
-       REFERENCES room_user (Room, Player)
+       REFERENCES room_player (Room, Player)
 
 table ban :
       room_player_relation_t
        CONSTRAINT IsRoomPlayerRelation
        FOREIGN KEY (Room, Player)
-       REFERENCES room_user (Room, Player)
+       REFERENCES room_player (Room, Player)
 
 type game_id_t = [ Game = int, Room = int ]
 

@@ -80,98 +80,79 @@ and login_form (msgo : option string) : xbody =
 
 and login_page (msgo : option string) : transaction page = return <xml><body>{login_form msgo}</body></xml>
 
-and submit_new_room (pt : player_table) room_form : transaction page =
+and submit_new_room (player_id : int) room_form : transaction page =
     room_id <- nextval room_seq;
     rand <- rand;
     dml (INSERT INTO
            room (Room, OwnedBy, Nam, Pass, CurrentGame)
          VALUES
            ( {[room_id]}
-           , {[pt.Player]}
+           , {[player_id]}
            , {[room_form.RoomName]}
            , {[if room_form.Private then Some rand else None]}
            , 0 ));
     view_room (Some room_id)
 
-and new_room_form (pt : player_table) : xbody =
+and new_room_form (player_id : int) : make_form =
     <xml><form>
       <table>
-        <tr>New Room</tr>
+        <tr><th>New Room</th></tr>
         <tr><th>Name</th><td><textbox{#RoomName}/></td></tr>
         <tr><th>Private?</th><td><checkbox{#Private}/></td></tr>
-        <tr><td><submit action={submit_new_room pt}/></td></tr>
+        <tr><td><submit action={submit_new_room player_id}/></td></tr>
       </table></form></xml>
 
 and new_room () : transaction page =
-    player_page (fn pt => return <xml><body>{new_room_form pt}</body></xml>)
+    player_page (fn pt => return <xml><body>{new_room_form pt.Player}</body></xml>)
 
 and only_if_mod_owner_admin (fun_name : string)
-                            (pt : player_table)
                             (room_id : int)
                             (page_f : room_table -> transaction page) : transaction page =
-    let fun debug_and_show_err err =
-            let val frontend_err = "Frontend." ^ fun_name ^ ": {" ^ pt.Username ^ "}: " ^ err
-            in  debug frontend_err; return <xml>{[frontend_err]}</xml>
-            end
-    in  r <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
-        m <- oneOrNoRows1 (SELECT *
-                           FROM mod
-                           WHERE mod.Room   = {[room_id]}
-                             AND mod.Player = {[pt.Player]});
-        case r of
-            None => debug_and_show_err "Room doesn't exist!"
-          | Some r => if r.OwnedBy <> pt.Player && m = None && not (is_admin pt.Username)
-                      then debug_and_show_err <| "You don't own " ^ r.Nam ^ "!"
-                      else page_f r
-    end
-
-and new_mod (room : room_table) (player : player_table) : transaction page =
     player_page
         (fn pt =>
-            return <xml><body>
-              <form>
-                <table>
-                  <tr>New Mod</tr>
-                </table></form></body></xml>)
+            let fun debug_and_show_err err =
+                    let val frontend_err = "Frontend." ^ fun_name ^ ": {" ^ pt.Username ^ "}: " ^ err
+                    in  debug frontend_err; return <xml>{[frontend_err]}</xml>
+                    end
+            in  r <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
+                m <- oneOrNoRows1 (SELECT *
+                                   FROM mod
+                                   WHERE mod.Room   = {[room_id]}
+                                     AND mod.Player = {[pt.Player]});
+                case r of
+                    None => debug_and_show_err "Room doesn't exist!"
+                  | Some r => if r.OwnedBy <> pt.Player && m = None && not (is_admin pt.Username)
+                              then debug_and_show_err <| "You don't own " ^ r.Nam ^ "!"
+                              else page_f r
+            end)
 
-and submit_new_game (room : room_table)
+and submit_new_game (room_id: int)
                     (game_form : game_time_table) : transaction page =
-    player_page
-        (fn pt =>
-            only_if_mod_owner_admin
-                "submit_new_game" pt room.Room
-                (fn room =>
-                    dml (INSERT INTO game
-                           ( Game
-                           , Room
-                           , ChanNomTime
-                           , GovVoteTime
-                           , PresDisTime
-                           , ChanEnaTime
-                           , ExecActTime
-                           , CurrentTurn)
-                         VALUES
-                           ( {[room.CurrentGame]}
-                           , {[room.Room]}
-                           , {[game_form.ChanNomTime]}
-                           , {[game_form.GovVoteTime]}
-                           , {[game_form.PresDisTime]}
-                           , {[game_form.ChanEnaTime]}
-                           , {[game_form.ExecActTime]}
-                           , {[Some 0]}));
-                    view_room (Some room.Room)))
+    only_if_mod_owner_admin
+        "submit_new_game" room_id
+        (fn room =>
+            dml (INSERT INTO game
+                   ( Game
+                     , Room
+                     , ChanNomTime
+                     , GovVoteTime
+                     , PresDisTime
+                     , ChanEnaTime
+                     , ExecActTime
+                     , CurrentTurn)
+                 VALUES
+                   ( {[room.CurrentGame]}
+                     , {[room.Room]}
+                     , {[game_form.ChanNomTime]}
+                     , {[game_form.GovVoteTime]}
+                     , {[game_form.PresDisTime]}
+                     , {[game_form.ChanEnaTime]}
+                     , {[game_form.ExecActTime]}
+                     , {[Some 0]}));
+            view_room (Some room.Room))
 
-and submit_new_mod (room_id : int) (player_id : int) {} : transaction page =
-    player_page
-        (fn pt =>
-            only_if_mod_owner_admin
-                "submit_new_mod" pt room_id
-                (fn rt =>
-                    dml (INSERT INTO mod (Room, Player) VALUES ({[rt.Room]}, {[player_id]}));
-                    view_room (Some rt.Room)))
-
-and new_game_page (r : room_table) : transaction page =
-    return <xml><body><form>
+and new_game_form (room_id : int) : make_form =
+    <xml><form>
       <table>
         <tr>New Game: Time Table</tr>
         <tr><th>Chancellor Nomination</th>
@@ -184,58 +165,79 @@ and new_game_page (r : room_table) : transaction page =
           <td><number{#ChanEnaTime}/></td></tr>
         <tr><th>Executive Action</th>
           <td><number{#ExecActTime}/></td></tr>
-        <tr><td><submit action={submit_new_game r}/></td></tr>
-      </table></form></body></xml>
+        <tr><td><submit action={submit_new_game room_id}/></td></tr>
+      </table></form></xml>
 
-and new_mod_page (room_id : int) : transaction page =
-    player_page
-        (fn pt =>
-            only_if_mod_owner_admin "submit_choose_room_for_game" pt room_id
-                (fn rt =>
-                    player_list <- queryL1 (SELECT *
-                                            FROM room_user
-                                            WHERE room_user.Room = {[rt.Room]});
-                    return <xml><body>
-                      {List.mapX (fn p =>
-                                     <xml><form>
-                                       <submit
-                                       (*value={p.Username} TODO: SQL join for name. *)
-                                       action={submit_new_mod rt.Room p.Player}/></form></xml>) player_list}
-                    </body></xml>))
+and new_game_page (room_id : int) : transaction page =
+    only_if_mod_owner_admin "new_game_page" room_id
+        (fn _ =>
+            return <xml><body>{new_room_form room_id}</body></xml>)
 
-and submit_choose_room_for_game (pt : player_table) (room_id : int) {} : transaction page =
-    only_if_mod_owner_admin "submit_choose_room_for_game" pt room_id
-                            (fn rt => new_game_page rt)
+and submit_choose_room_for_game (room_id : int) {} : transaction page =
+    only_if_mod_owner_admin "submit_choose_room_for_game" room_id
+                            (fn rt => new_game_page rt.Room)
 
-and submit_choose_room_for_mod (pt : player_table) (room_id : int) {} : transaction page =
-    only_if_mod_owner_admin "submit_choose_room_for_mod" pt room_id
-                            (fn rt => new_mod_page rt.Room)
-
-and choose_room_form_closure
-        (pt : player_table)
-        (room_list : list room_table)
-        (submit_action : player_table -> int -> {} -> transaction page)
-    : xbody =
-    List.mapX
-        (fn r => <xml><form>
-                   <submit
-                     value={r.Nam}
-                     action={submit_action pt r.Room}/>
-                   </form></xml>)
-        room_list
-
-and choose_room_for_game (pt : player_table) (room_list : list room_table) : xbody =
-    choose_room_form_closure pt room_list submit_choose_room_for_game
-
-and choose_room_for_mod (pt : player_table) (room_list : list room_table) : xbody =
-    choose_room_form_closure pt room_list submit_choose_room_for_mod
+and choose_room_for_game (room_list : list room_table) : xbody =
+    choose_room_form_closure room_list submit_choose_room_for_game
 
 and new_game () : transaction page = player_page
     (fn pt =>
         rl <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
         case rl of
             [] => new_room ()
-          | rl => return <xml><body>New Game<br/>{choose_room_for_game pt rl}</body></xml>)
+          | rl => return <xml><body>New Game<br/>{choose_room_for_game rl}</body></xml>)
+
+
+and submit_new_mod (room_id : int) (player_id : int) {} : transaction page =
+    only_if_mod_owner_admin "submit_new_mod" room_id
+        (fn rt =>
+            dml (INSERT INTO mod (Room, Player) VALUES ({[rt.Room]}, {[player_id]}));
+            main_menu (Some "New Mod successfully added!"))
+
+and make_mod_form (room_id : int)
+                  (player_list : list { Player   : int
+                                      , Username : string })
+    : make_form =
+    List.mapX (fn p =>
+                  <xml><form>
+                    <submit
+                    value={p.Username}
+                    action={submit_new_mod room_id p.Player}/></form></xml>)
+              player_list
+
+and get_all_rooms_users room_id (* TODO: make return result for if no permission*)
+  : transaction (list { Player   : int
+                      , Username : string }) =
+    queryL1 (SELECT player.Player, player.Username
+             FROM (room_player
+                 INNER JOIN player
+                 ON room_player.Player = player.Player)
+             WHERE room_player.Room = {[room_id]})
+
+and new_mod_page (room_id : int) : transaction page =
+    only_if_mod_owner_admin "new_mod_page" room_id
+        (fn rt =>
+            player_list <- get_all_rooms_users room_id;
+            return <xml><body>{make_mod_form room_id player_list}</body></xml>)
+
+and submit_choose_room_for_mod (room_id : int) {} : transaction page =
+    only_if_mod_owner_admin "submit_choose_room_for_mod" room_id
+                            (fn rt => new_mod_page rt.Room)
+
+and choose_room_form_closure
+        (room_list : list room_table)
+        (submit_action : int -> {} -> transaction page)
+    : make_form =
+    List.mapX
+        (fn r => <xml><form>
+                   <submit
+                     value={r.Nam}
+                     action={submit_action r.Room}/>
+                   </form></xml>)
+        room_list
+
+and choose_room_for_mod (room_list : list room_table) : xbody =
+    choose_room_form_closure room_list submit_choose_room_for_mod
 
 and view_room (room_id_o : option int) : transaction page = player_page
     (fn pt =>
@@ -263,9 +265,9 @@ and view_room (room_id_o : option int) : transaction page = player_page
               | Some rt =>
                 room_user_relation_o <-
                     oneOrNoRows1 (SELECT *
-                                  FROM room_user
-                                  WHERE room_user.Player = {[pt.Player]}
-                                    AND room_user.Room   = {[room_id]});
+                                  FROM room_player
+                                  WHERE room_player.Player = {[pt.Player]}
+                                    AND room_player.Room   = {[room_id]});
                 case room_user_relation_o of
                     None   => join_room room_id
                   | Some _ =>
@@ -298,17 +300,61 @@ and admin_page (pf : player_table -> transaction page) : transaction page =
 
 and admin_test_page () : transaction page = admin_page
     (fn pt =>
-        let fun add_user_to_room (user_to_room : string) : transaction page =
-                return <xml></xml>
+        let fun make_add_user_to_room_form () : transaction make_form =
+                let fun submit_add_user_to_room p_r
+                        : transaction page =
+                        dml (INSERT INTO
+                               room_player (Room, Player)
+                             VALUES
+                               ( {[readError p_r.Room.Selection]}
+                               , {[readError p_r.Player.Selection]}));
+                        admin_test_page ()
+                in  players <- queryL1 (SELECT * FROM player);
+                    rooms   <- queryL1 (SELECT * FROM room);
+                    return <xml><form>
+                      <subform {#Player}>
+                        <select {#Selection}>
+                          {List.mapX (fn p =>
+                                         <xml><option value={show p.Player}>
+                                           {[p.Username]}</option></xml>) players}
+                        </select>
+                      </subform>
+                      <subform {#Room}>
+                        <select {#Selection}>
+                          {List.mapX (fn r =>
+                                         <xml><option value={show r.Room}>
+                                           {[r.Nam]}</option></xml>) rooms}
+                        </select>
+                      </subform>
+                      <submit action={submit_add_user_to_room}/></form></xml>
+                end
+
+            fun make_start_game_form () : transaction make_form =
+                (*rooms <- query1 (SELECT * FROM room);*)
+                return <xml>(*<form>
+                  <select {#Room}>
+                    {List.mapX (fn r => <xml></xml>) rooms}
+                  </select>
+                  <submit action={submit_start_game} />
+                </form>*)</xml>
 
             fun add_user_to_game (is_watching : bool) (user_to_game : string)
-                : transaction page =
-                return <xml></xml>
+                : transaction make_form =
+                return <xml><form></form></xml>
 
-            fun start_game_with_admin_view (game : string) : transaction page =
-                return <xml></xml>
-
-        in  return <xml></xml>
+        in  add_user_to_room_form <- make_add_user_to_room_form ();
+            start_game_form <- make_start_game_form ();
+            return <xml><body><table>
+              <tr><td>{new_room_form pt.Player}</td></tr>
+              <tr><td><hr/></td></tr>
+              <tr><td><table>
+                <tr><th>Add User to Room</th>
+                  <td>{add_user_to_room_form}</td>
+                </tr></table></td></tr>
+              <tr><td><hr/></td></tr>
+              <tr><td>{start_game_form}</td></tr>
+(*              <tr><td>{[add_user_to_room_form]}</td></tr>*)
+            </table></body></xml>
         end)
 
 fun game_loop (initial_state : Types.game) =

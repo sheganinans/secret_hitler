@@ -67,3 +67,7 @@ type player_name_and_pass = $player_name_and_pass_t
 datatype result ok err =
      | Ok  of ok
      | Err of err
+
+(* Type Synonyms *)
+
+type make_form = xml [MakeForm, Dyn, Body] [] []
