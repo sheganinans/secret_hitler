@@ -29,6 +29,8 @@ table room :
 type room_player_relation_t =
       [ Room   = int
       , Player = int
+      , SetBy  = int
+      , Time   = time
       ]
 
 type room_player_relation = $room_player_relation_t
@@ -37,6 +39,7 @@ table room_player :
       room_player_relation_t PRIMARY KEY (Room, Player)
     , CONSTRAINT   RoomExists FOREIGN KEY Room   REFERENCES room   (Room)
     , CONSTRAINT PlayerExists FOREIGN KEY Player REFERENCES player (Player)
+    , CONSTRAINT  SetByExists FOREIGN KEY SetBy  REFERENCES player (Player)
 
 table mod :
       room_player_relation_t
@@ -65,7 +68,9 @@ type game_time_table = $game_time_table_t
 type game_table_t =
      game_id_t
     ++ game_time_table_t
-    ++ [ CurrentTurn = option int ]
+    ++ [ CurrentTurn = option int
+       , GameStarted = time
+       , GameEnded   = option time ]
 
 type game_table = $game_table_t
 

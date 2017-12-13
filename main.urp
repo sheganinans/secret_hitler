@@ -3,6 +3,7 @@
 allow url https://code.jquery.com/jquery-2.1.4.min.js
 allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css
 #allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css
+clientOnly Auth.basic_password_hash
 database dbname=test hostaddr=127.0.0.1 user=postgres
 file /styles.css styles/styles.css
 onError Error_page.error_page

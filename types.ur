@@ -62,6 +62,8 @@ type player_name_and_pass_t =
 
 type player_name_and_pass = $player_name_and_pass_t
 
+type player_id_and_username = { Player : int, Username : string }
+
 (* Result Type *)
 
 datatype result ok err =
