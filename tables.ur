@@ -11,7 +11,7 @@ table player : player_table_t PRIMARY KEY Player
 
 type room_pass_t =
     [ Room = int
-    , Pass = option int ]
+    , Pass = option string ]
 
 type room_table_t =
     room_pass_t

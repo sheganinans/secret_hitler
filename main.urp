@@ -9,7 +9,9 @@ file /styles.css styles/styles.css
 onError Error_page.error_page
 rewrite style Styles/* [-]
 rewrite url Main/*
-rewrite url Frontend/*
+#rewrite url Frontend/*
+rewrite url New_frontend/*
+safeGet view_room
 script https://code.jquery.com/jquery-2.1.4.min.js
 sql secret_dio.sql
 
