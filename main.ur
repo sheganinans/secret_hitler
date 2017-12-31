@@ -1,3 +1,3 @@
 open Types
 
-fun main () = Frontend.main_menu None
+fun main () = New_frontend.main_menu ()

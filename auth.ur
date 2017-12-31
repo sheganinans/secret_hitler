@@ -45,16 +45,4 @@ fun check_login (r : role) : transaction (result player_table string) =
                else return (Err err)
     end
 
-(*
-fun requires_auth [a ::: Type] [b ::: Type]
-      (f : string ->      (a -> b))
-    : transaction (option (a -> b)) =
-    (* TODO: Actually make work and replace basic_password_hash. *)
-    vo <- getenv (blessEnvVar "PASSWORD_SECRET");
-    case vo of
-        None   => debug "Auth.requires_auth, No ENV_VAR: PASSWORD_SECRET";
-                  return None
-      | Some v => return <| Some <| f v
-*)
-
 fun basic_password_hash pw = crypt pw "TheReallyBasicHashSecretForPasswordsForSecretDio"
