@@ -115,9 +115,10 @@ table hitler :
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
 type govt_state_t =
-     [ President  = int
-     , NextPres   = int
-     , Chancellor = option int
+     [ President   = int
+     , NextPres    = int
+     , Chancellor  = option int
+     , RejectCount = int
      ]
 
 type deck_state_t =
@@ -125,7 +126,10 @@ type deck_state_t =
      , LiberalsInDisc = int, FascistsInDisc = int
      , Fst = bool
      , Snd = bool
-     , Trd = bool ]
+     , Trd = bool
+     , PresDisc = int
+     , ChanEnac = int
+     ]
 
 type game_state_t =
      [ LiberalPolicies = int
@@ -143,6 +147,8 @@ table turn :
     , CONSTRAINT   NextPresIsPlayer FOREIGN KEY NextPres   REFERENCES player (Player)
     , CONSTRAINT ChancellorIsPlayer FOREIGN KEY Chancellor REFERENCES player (Player)
     , CONSTRAINT DrawDeckGTE3 CHECK LiberalsInDraw + FascistsInDraw >= 3
+    , CONSTRAINT AllowedDisc CHECK PresDisc >= 0 AND PresDisc <= 3
+    , CONSTRAINT AllowedEnac CHECK ChanEnac >= 0 AND ChanEnac <= 3
     , CONSTRAINT LibPolGTE0 CHECK LiberalPolicies >= 0
     , CONSTRAINT FasPolGTE0 CHECK FascistPolicies >= 0
 
