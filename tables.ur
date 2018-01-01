@@ -1,7 +1,6 @@
 open Types
 
-type player_table_t =
-     [ Player = int ] ++ player_name_and_pass_t
+type player_table_t = [ Player = int ] ++ player_name_and_pass_t
 
 type player_table = $player_table_t
 
@@ -9,9 +8,7 @@ sequence player_seq
 table player : player_table_t PRIMARY KEY Player
     , CONSTRAINT UniqName UNIQUE Username
 
-type room_pass_t =
-    [ Room = int
-    , Pass = option string ]
+type room_pass_t = [ Room = int, Pass = option string ]
 
 type room_table_t =
     room_pass_t
@@ -69,20 +66,18 @@ type game_time_table = $game_time_table_t
 type game_table_t =
      game_id_t
     ++ game_time_table_t
-    ++ [ CurrentTurn = option int
+    ++ [ CurrentTurn = int
        , GameStarted = time
        , LastAction  = time
        , GameEnded   = option time ]
 
 type game_table = $game_table_t
 
-sequence game_seq
 table game :
       game_table_t PRIMARY KEY (Game, Room)
     , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
 
-type player_id_per_game_t =
-     [ Player = int ] ++ game_id_t
+type player_id_per_game_t = [ Player = int ] ++ game_id_t
 
 type player_id_per_game = $player_id_per_game_t
 
@@ -91,6 +86,7 @@ type player_connection_t =
      [ Client   = client
      , Chan     = channel action
      , Watching = bool
+     , PlayerId = option int
      ]
 
 type player_connection = $player_connection_t
@@ -116,8 +112,7 @@ table hitler :
     , CONSTRAINT HavePlayer FOREIGN KEY Player REFERENCES player (Player)
     , CONSTRAINT HaveGame FOREIGN KEY (Game, Room) REFERENCES game (Game, Room)
 
-type turn_id_t =
-     game_id_t ++ [ Turn = int ]
+type turn_id_t = game_id_t ++ [ Turn = int ]
 
 type govt_state_t =
      [ President  = int
@@ -133,13 +128,11 @@ type deck_state_t =
      , Trd = bool ]
 
 type game_state_t =
-     [ LiberalPolicies = int, FascistPolicies = int ]
+     [ LiberalPolicies = int
+     , FascistPolicies = int
+     ]
 
-type turn_table_t =
-     turn_id_t    ++
-     govt_state_t ++
-     deck_state_t ++
-     game_state_t
+type turn_table_t = turn_id_t ++ govt_state_t ++ deck_state_t ++ game_state_t
 
 type turn_table = $turn_table_t
 
@@ -153,11 +146,7 @@ table turn :
     , CONSTRAINT LibPolGTE0 CHECK LiberalPolicies >= 0
     , CONSTRAINT FasPolGTE0 CHECK FascistPolicies >= 0
 
-type player_action_id_t =
-     turn_id_t ++ [ Player = int ]
-
-type vote_on_govt_table_t =
-     player_action_id_t ++ [ Vote = bool ]
+type vote_on_govt_table_t = turn_id_t ++ [ Player = int, Vote = bool ]
 
 type vote_on_govt_table = $vote_on_govt_table_t
 
@@ -166,25 +155,31 @@ table vote_on_govt :
           CONSTRAINT HasTurn FOREIGN KEY (Game, Room, Turn) REFERENCES turn (Game, Room, Turn)
       , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
 
-type loyalty_investigation_table_t =
-     player_action_id_t
+type president_action_id_t = turn_id_t ++ [ Target = int ]
+
+type loyalty_investigation_table_t = president_action_id_t
 
 table loyalty_investigation :
       loyalty_investigation_table_t
           CONSTRAINT HasTurn FOREIGN KEY (Game, Room, Turn) REFERENCES turn (Game, Room, Turn)
-      , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+      , CONSTRAINT HasPlayer FOREIGN KEY Target REFERENCES player (Player)
 
-type dead_player_table_t =
-      player_action_id_t
+type dead_player_table_t = president_action_id_t
 
 table dead_player :
       dead_player_table_t
           CONSTRAINT DiedOnTurn FOREIGN KEY (Game, Room, Turn) REFERENCES turn (Game, Room, Turn)
-      , CONSTRAINT IsPlayer FOREIGN KEY Player REFERENCES player (Player)
+      , CONSTRAINT IsPlayer FOREIGN KEY Target REFERENCES player (Player)
 
-type veto_table_t =
-     turn_id_t
+type veto_table_t = turn_id_t
 
 table veto :
       veto_table_t
       CONSTRAINT HasTurn FOREIGN KEY (Game, Room, Turn) REFERENCES turn (Game, Room, Turn)
+
+fun get_player_from_player_id (rt : room_table) (pid : int) : transaction {Player : int} =
+    oneRow1 (SELECT player_in_game.Player
+             FROM player_in_game
+             WHERE player_in_game.Room = {[rt.Room]}
+               AND player_in_game.Game = {[rt.CurrentGame]}
+               AND player_in_game.PlayerId = {[Some pid]})

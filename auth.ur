@@ -45,4 +45,4 @@ fun check_login (r : role) : transaction (result player_table string) =
                else return (Err err)
     end
 
-fun basic_password_hash pw = crypt pw "TheReallyBasicHashSecretForPasswordsForSecretDio"
+fun basic_hash pw = crypt pw "TheReallyBasicHashSecretForPasswordsForSecretDio"
