@@ -162,13 +162,14 @@ and submit_new_room (player_id : int) room_form : transaction page =
     rand <- rand;
     now <- now;
     dml (INSERT INTO
-           room (Room, OwnedBy, Nam, Pass, CurrentGame)
+           room (Room, OwnedBy, Nam, Pass, CurrentGame, InGame)
          VALUES
            ( {[room_id]}
            , {[player_id]}
            , {[room_form.RoomName]}
            , {[if room_form.Private then Some (show rand) else None]}
-           , 0 ));
+           , 0
+           , FALSE ));
     dml (INSERT INTO room_player (Room, Player, SetBy, Time)
          VALUES ({[room_id]}, {[player_id]}, {[player_id]}, {[now]}));
     view_room (Some room_id)

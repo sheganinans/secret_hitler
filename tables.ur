@@ -17,7 +17,8 @@ type room_table_t =
     room_pass_t
   ++ [ Nam         = string
      , OwnedBy     = int
-     , CurrentGame = int ]
+     , CurrentGame = int
+     , InGame      = bool ]
 
 type room_table = $room_table_t
 
@@ -86,8 +87,9 @@ type player_id_per_game = $player_id_per_game_t
 
 type player_connection_t =
      player_id_per_game_t ++
-     [ Client = client
-     , Chan   = channel action
+     [ Client   = client
+     , Chan     = channel action
+     , Watching = bool
      ]
 
 type player_connection = $player_connection_t
