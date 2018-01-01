@@ -28,19 +28,7 @@ fun signup_page {} : transaction page =
       </table></form></body></xml>
     end
 
-and submit_login (login_form : player_name_and_pass) : transaction page =
-    let val pw_hs = Auth.basic_password_hash login_form.PassHash
-    in  hp_o <- oneOrNoRows1 (SELECT player.PassHash
-                              FROM player
-                              WHERE player.Username = {[login_form.Username]});
-        case hp_o of
-            None => login_page {}
-          | Some hp =>
-            if hp.PassHash <> pw_hs
-            then login_page {}
-            else set_username_cookie login_form.Username pw_hs;
-                 main_menu {}
-    end
+and login_page {} : transaction page = return <xml><body>{login_form {}}</body></xml>
 
 and login_form {} : make_form = <xml><table>
   <tr><td><a link={main_menu {}}>Back to Main Menu</a></td></tr>
@@ -55,7 +43,19 @@ and login_form {} : make_form = <xml><table>
        </table></form></td></tr>
   </table></xml>
 
-and login_page {} : transaction page = return <xml><body>{login_form {}}</body></xml>
+and submit_login (login_form : player_name_and_pass) : transaction page =
+    let val pw_hs = Auth.basic_password_hash login_form.PassHash
+    in  hp_o <- oneOrNoRows1 (SELECT player.PassHash
+                              FROM player
+                              WHERE player.Username = {[login_form.Username]});
+        case hp_o of
+            None => login_page {}
+          | Some hp =>
+            if hp.PassHash <> pw_hs
+            then login_page {}
+            else set_username_cookie login_form.Username pw_hs;
+                 main_menu {}
+    end
 
 and banned (room_id : int) : transaction page =
     rt <- room_exists_exn room_id;
@@ -65,16 +65,17 @@ and banned (room_id : int) : transaction page =
       <tr><td><a link={main_menu {}}>Main Menu</a></td></tr>
     </table></body></xml>
 
+and main_menu {} : transaction page =
+    pt <- check_role Player;
+    return <xml><body>{[main_menu_body ()]}</body></xml>
+
 and main_menu_body {} : xbody = <xml>
   <table>
     <tr><td><a link={new_room {}}>New Room</a></td></tr>
     <tr><td><a link={new_game {}}>New Game</a></td></tr>
-    <tr><td><a link={view_rooms {}}>Show Rooms</a></td></tr>
+    <tr><td><a link={view_rooms {}}>View Your Rooms</a></td></tr>
+    <tr><td><a link={view_public_rooms {}}>View Public Rooms</a></td></tr>
   </table></xml>
-
-and main_menu {} : transaction page =
-    pt <- check_role Player;
-    return <xml><body>{[main_menu_body ()]}</body></xml>
 
 and new_room {} : transaction page =
     let fun submit_new_room room_form : transaction page =
@@ -104,27 +105,6 @@ and new_room {} : transaction page =
             <tr><td><submit action={submit_new_room}/></td></tr>
           </table></form></body></xml>
     end
-
-and view_invite (room_id : int) : transaction page =
-    pt <- check_role Player;
-    rp_o <- oneOrNoRows1 (SELECT *
-                          FROM room_player
-                          WHERE room_player.Room = {[room_id]}
-                            AND room_player.Player = {[pt.Player]});
-    case rp_o of
-        None   => main_menu {}
-      | Some _ =>
-        r_o <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
-        case r_o of
-            None => main_menu {}
-          | Some rt =>
-            return <xml><body><table>
-              <tr><th><a link={view_room room_id}>Back to {[rt.Nam]}</a></th></tr>
-              <tr><th>Link:</th><td>{[show (url (view_room room_id))]}</td></tr>
-              {[case rt.Pass of
-                    None => <xml></xml> : xtable
-                  | Some pass => <xml><tr><th>Pass:</th><td>{[pass]}</td></tr></xml>]}
-            </table></body></xml>
 
 and new_game {} : transaction page =
     let fun submit_new_game (room_id: int) (game_form : game_time_table) : transaction page =
@@ -205,6 +185,95 @@ and view_rooms () : transaction page =
             </table></td></tr>
         </table></body></xml>
 
+and view_public_rooms {} : transaction page = return <xml></xml>
+
+and view_invite (room_id : int) : transaction page =
+    pt <- check_role Player;
+    rp_o <- oneOrNoRows1 (SELECT *
+                          FROM room_player
+                          WHERE room_player.Room = {[room_id]}
+                            AND room_player.Player = {[pt.Player]});
+    case rp_o of
+        None   => main_menu {}
+      | Some _ =>
+        r_o <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
+        case r_o of
+            None => main_menu {}
+          | Some rt =>
+            return <xml><body><table>
+              <tr><th><a link={view_room room_id}>Back to {[rt.Nam]}</a></th></tr>
+              <tr><th>Link:</th><td>{[show (url (view_room room_id))]}</td></tr>
+              {[case rt.Pass of
+                    None => <xml></xml> : xtable
+                  | Some pass => <xml><tr><th>Pass:</th><td>{[pass]}</td></tr></xml>]}
+            </table></body></xml>
+
+and join_room (room_id : int) : transaction page =
+    let fun submit_private_room_secret (room_id : int)
+                                       (pass : {Pass : string}) : transaction page =
+            rt <- room_exists_exn room_id;
+            (if rt.Pass = None || rt.Pass = Some pass.Pass
+             then pt  <- check_role Player;
+                  now <- now;
+                  dml (INSERT INTO room_player (Room, Player, SetBy, Time)
+                       VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}))
+             else return {});
+            view_room room_id
+
+    in  pt <- check_role Player;
+        rp_o <- oneOrNoRows1 (SELECT *
+                              FROM room_player
+                              WHERE room_player.Player = {[pt.Player]}
+                                AND room_player.Room = {[room_id]});
+        case rp_o of
+            Some _ => view_room room_id
+          | None   =>
+            rt <- room_exists_exn room_id;
+            case rt.Pass of
+                None =>
+                now <- now;
+                dml (INSERT INTO room_player (Room, Player, SetBy, Time)
+                     VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}));
+                view_room room_id
+              | Some _ =>
+                return <xml><body><form><table>
+                  <tr><th>Pass</th><td><password{#Pass}/></td></tr>
+                  <tr><td><submit action={submit_private_room_secret room_id}/></td></tr>
+                </table></form></body></xml>
+    end
+
+and view_room (room_id : int) : transaction page =
+    rt <- room_exists_exn room_id;
+    pt <- check_role Player;
+    is_banned <- oneOrNoRows1 (SELECT *
+                               FROM ban
+                               WHERE ban.Player = {[pt.Player]}
+                                 AND ban.Room   = {[room_id]});
+    case is_banned of
+        Some _ => banned rt.Room
+      | None   =>
+        rp_o <- oneOrNoRows1 (SELECT *
+                              FROM room_player
+                              WHERE room_player.Player = {[pt.Player]}
+                                AND room_player.Room   = {[room_id]});
+        case rp_o of
+            None   => join_room room_id
+          | Some _ =>
+            player_list_o <- get_all_usernames_and_ids_in_room room_id;
+            case player_list_o of
+                None => main_menu {}
+              | Some player_list =>
+                return <xml><body><table>
+                  <tr><th>View Room {[show rt.Nam]}</th></tr>
+                  {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
+                             player_list}
+                </table></body></xml>
+
+and start_game (room_id : int) : transaction page =
+    (pt, rt) <- player_in_room_exn room_id;
+    
+    return <xml></xml>
+
 and join_game (room_id : int) : transaction page =
     let fun submit_join_game (room_id : int)
                              (playing : {Playing : bool}) : transaction page =
@@ -238,38 +307,6 @@ and join_game (room_id : int) : transaction page =
             <tr><submit action={submit_join_game room_id}/></tr>
         </table></form></body></xml>
     end
-
-and start_game (room_id : int) : transaction page =
-    (pt, rt) <- player_in_room_exn room_id;
-    
-    return <xml></xml>
-
-and view_room (room_id : int) : transaction page =
-    rt <- room_exists_exn room_id;
-    pt <- check_role Player;
-    is_banned <- oneOrNoRows1 (SELECT *
-                               FROM ban
-                               WHERE ban.Player = {[pt.Player]}
-                                 AND ban.Room   = {[room_id]});
-    case is_banned of
-        Some _ => banned rt.Room
-      | None   =>
-        rp_o <- oneOrNoRows1 (SELECT *
-                              FROM room_player
-                              WHERE room_player.Player = {[pt.Player]}
-                                AND room_player.Room   = {[room_id]});
-        case rp_o of
-            None   => join_room room_id
-          | Some _ =>
-            player_list_o <- get_all_usernames_and_ids_in_room room_id;
-            case player_list_o of
-                None => main_menu {}
-              | Some player_list =>
-                return <xml><body><table>
-                  <tr><th>View Room {[show rt.Nam]}</th></tr>
-                  {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
-                             player_list}
-                </table></body></xml>
 
 and get_all_usernames_and_ids_in_room (room_id : int)
     : transaction (option (list player_id_and_username)) =
@@ -317,40 +354,6 @@ and new_mod {} : transaction page =
                          </form></xml>)
                      room_list}
         </body></xml>
-    end
-
-and join_room (room_id : int) : transaction page =
-    let fun submit_private_room_secret (room_id : int)
-                                       (pass : {Pass : string}) : transaction page =
-            rt <- room_exists_exn room_id;
-            (if rt.Pass = None || rt.Pass = Some pass.Pass
-             then pt  <- check_role Player;
-                  now <- now;
-                  dml (INSERT INTO room_player (Room, Player, SetBy, Time)
-                       VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}))
-             else return {});
-            view_room room_id
-
-    in  pt <- check_role Player;
-        rp_o <- oneOrNoRows1 (SELECT *
-                              FROM room_player
-                              WHERE room_player.Player = {[pt.Player]}
-                                AND room_player.Room = {[room_id]});
-        case rp_o of
-            Some _ => view_room room_id
-          | None   =>
-            rt <- room_exists_exn room_id;
-            case rt.Pass of
-                None =>
-                now <- now;
-                dml (INSERT INTO room_player (Room, Player, SetBy, Time)
-                     VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}));
-                view_room room_id
-              | Some _ =>
-                return <xml><body><form><table>
-                  <tr><th>Pass</th><td><password{#Pass}/></td></tr>
-                  <tr><td><submit action={submit_private_room_secret room_id}/></td></tr>
-                </table></form></body></xml>
     end
 
 and check_role (role : role) : transaction player_table =
