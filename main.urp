@@ -13,6 +13,7 @@ rewrite url Main/*
 rewrite url New_frontend/*
 safeGet view_room
 script https://code.jquery.com/jquery-2.1.4.min.js
+serverOnly New_frontend.game_loop
 sql secret_dio.sql
 
 $/list

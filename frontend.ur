@@ -206,6 +206,7 @@ and submit_new_game (room_id: int) (game_form : game_time_table) : transaction p
                    , ExecActTime
                    , CurrentTurn
                    , GameStarted
+                   , LastAction
                    , GameEnded)
                  VALUES
                    ( {[rt.CurrentGame]}
@@ -216,6 +217,7 @@ and submit_new_game (room_id: int) (game_form : game_time_table) : transaction p
                    , {[game_form.ChanEnaTime]}
                    , {[game_form.ExecActTime]}
                    , {[Some 0]}
+                   , {[now]}
                    , {[now]}
                    , {[None]})));
             view_room (Some rt.Room))
@@ -486,20 +488,4 @@ and admin_test_page () : transaction page =
                   {line_row}
                   <tr><td>{game}</td></tr>
                 </table></body></xml>)
-    end
-
-fun game_loop (initial_state : Types.game) =
-    let fun loop_it ((me,chan,state) : client * channel action * source Types.game)
-            : transaction {} =
-            let fun loop () =
-                    sleep 1;
-                    loop ()
-            in loop () end
-    in me <- self;
-       chan <- channel;
-       (*dml (INSERT INTO users (Client, Chan, Game)
-              VALUES ({[me]}, {[chan]}, {[initial_state.Game]}));*)
-
-       state <- source initial_state;
-       loop_it (me,chan,state)
     end

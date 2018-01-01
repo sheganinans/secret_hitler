@@ -73,7 +73,7 @@ and main_menu_body {} : xbody = <xml>
   <table>
     <tr><td><a link={new_room {}}>New Room</a></td></tr>
     <tr><td><a link={new_game {}}>New Game</a></td></tr>
-    <tr><td><a link={view_rooms {}}>View Your Rooms</a></td></tr>
+    <tr><td><a link={view_your_rooms {}}>View Your Rooms</a></td></tr>
     <tr><td><a link={view_public_rooms {}}>View Public Rooms</a></td></tr>
   </table></xml>
 
@@ -127,6 +127,7 @@ and new_game {} : transaction page =
                        , ExecActTime
                        , CurrentTurn
                        , GameStarted
+                       , LastAction
                        , GameEnded )
                  VALUES
                    ( {[rt.CurrentGame]}
@@ -137,6 +138,7 @@ and new_game {} : transaction page =
                    , {[game_form.ChanEnaTime]}
                    , {[game_form.ExecActTime]}
                    , {[Some 0]}
+                   , {[now]}
                    , {[now]}
                    , {[None]} )));
             view_room rt.Room
@@ -168,7 +170,7 @@ and new_game {} : transaction page =
         </body></xml>
     end
 
-and view_rooms () : transaction page =
+and view_your_rooms {} : transaction page =
     rl <- select_rooms_controlled {};
     case rl of
         [] => main_menu {}
@@ -270,9 +272,16 @@ and view_room (room_id : int) : transaction page =
                 </table></body></xml>
 
 and start_game (room_id : int) : transaction page =
-    (pt, rt) <- player_in_room_exn room_id;
-    
-    return <xml></xml>
+    (pt, rt) <- only_if_owner_mod_admin_exn room_id;
+    player_list <- queryL1 (SELECT *
+                            FROM player_in_game
+                            WHERE player_in_game.Game = {[rt.CurrentGame]}
+                              AND player_in_game.Room = {[rt.Room]});
+    let val players = List.filter (fn p => not p.Watching) player_list
+        val watchers = List.filter (fn p => p.Watching) player_list
+    in
+        return <xml></xml>
+    end
 
 and join_game (room_id : int) : transaction page =
     let fun submit_join_game (room_id : int)
@@ -404,3 +413,24 @@ and admin_view {} : transaction page =
     in  pt <- check_role Admin;
         return <xml></xml>
     end
+
+fun game_loop (gt : game_table) =
+    turn <- oneRow1 (SELECT *
+                     FROM turn
+                     WHERE turn.Game = {[gt.Game]}
+                       AND turn.Room = {[gt.Room]});
+    players <- queryL1 (SELECT *
+                        FROM player_in_game
+                        WHERE player_in_game.Game = {[gt.Game]}
+                          AND player_in_game.Room = {[gt.Room]});
+    return {}
+
+task periodic 1 = (* Loop for active games. *)
+     fn () =>
+        games <- queryL1 (SELECT game.*
+                          FROM (game
+                              INNER JOIN room
+                              ON game.Room = room.Room
+                              AND game.Game = room.CurrentGame));
+        _ <- List.mapM game_loop games;
+        return {}

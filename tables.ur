@@ -71,6 +71,7 @@ type game_table_t =
     ++ game_time_table_t
     ++ [ CurrentTurn = option int
        , GameStarted = time
+       , LastAction  = time
        , GameEnded   = option time ]
 
 type game_table = $game_table_t
@@ -121,7 +122,7 @@ type turn_id_t =
 type govt_state_t =
      [ President  = int
      , NextPres   = int
-     , Chancellor = int
+     , Chancellor = option int
      ]
 
 type deck_state_t =
