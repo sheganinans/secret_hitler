@@ -107,7 +107,7 @@ and new_room {} : transaction page =
     end
 
 and new_game {} : transaction page =
-    let fun submit_new_game (room_id: int) (game_form : game_time_table) : transaction page =
+    let fun submit_new_game (room_id: int) (game_form : rule_set) : transaction page =
             (pt, rt) <- only_if_owner_mod_exn room_id;
             r_o <- oneOrNoRows1 (SELECT *
                                  FROM game
@@ -120,6 +120,8 @@ and new_game {} : transaction page =
                 dml (INSERT INTO game
                        ( Game
                        , Room
+                       , TimedGame
+                       , KillPlayer
                        , ChanNomTime
                        , GovVoteTime
                        , PresDisTime
@@ -132,6 +134,8 @@ and new_game {} : transaction page =
                  VALUES
                    ( {[rt.CurrentGame]}
                    , {[rt.Room]}
+                   , {[game_form.TimedGame]}
+                   , {[game_form.KillPlayer]}
                    , {[game_form.ChanNomTime]}
                    , {[game_form.GovVoteTime]}
                    , {[game_form.PresDisTime]}
@@ -147,6 +151,10 @@ and new_game {} : transaction page =
             return <xml><body><form>
               <table>
                 <tr><th>New Game: Time Table</th></tr>
+                <tr><th>Timed Game?</th>
+                  <td><checkbox{#TimedGame}/></td></tr>
+                <tr><th>Kill Player as Punishment?</th>
+                  <td><checkbox{#KillPlayer}/></td></tr>
                 <tr><th>Chancellor Nomination</th>
                   <td><number{#ChanNomTime}/></td></tr>
                 <tr><th>Government Vote</th>
@@ -486,10 +494,101 @@ fun update_last_action (gt : game_table) =
          WHERE Game = {[gt.Game]}
            AND Room = {[gt.Room]})
 
+(* Player Actions *)
+datatype voter_action
+  = Ya
+  | Nein
+  | UnVote
+
+datatype card = Fst | Snd | Trd
+
+datatype president_action
+  = ChooseChancellor    of int
+  | DiscardCard         of card
+  | InvestigateLoyalty  of int
+  | CallSpecialElection of int
+  | ExecutePlayer       of int
+  | Veto
+
+datatype chancellor_action
+  = EnactPolicy of card
+  | ProposeVeto
+
+datatype player_action
+  = Voter      of      voter_action
+  | President  of  president_action
+  | Chancellor of chancellor_action
+
+(* Server Responses *)
+datatype president_response
+  = ChooseYourChancellor
+  | DiscardCard          of (side * side * side)
+  | LoyaltyInvestigation of (int * side)
+  | PolicyPeek           of (side * side * side)
+  | ExecutionPowerGranted
+  | VetoProposed
+
+datatype chancellor_response = Policies of (side * side)
+
+type game_end_state
+  = { Winners  : side
+    , Hitler   :      int
+    , Liberals : list int
+    , Fascists : list int }
+
+type current_game_state
+  = { President       : int
+    , Chancellor      : option int
+    , FascistPolicies : int
+    , LiberalPolicies : int
+    , Players         : list { Player : int, Username : string }
+    , ChatHistory     : list { Player : int, When : time, Msg : string }
+    }
+
+datatype new_govt = Passed | Failed | InChaos
+
+datatype game_state_info
+  = Liberal
+  | Hitler
+  | Fascist of { Hitler : int, Fascists : list int }
+
+type game_state_init
+  = { CurrentGameState : current_game_state
+    , GameStateInfo    : game_state_info
+    }
+
+datatype general_response
+  = RuleSet          of rule_set
+  | GameStateInit    of game_state_init
+  | PresidentNow     of int
+  | ChancellorChosen of int
+  | NewGovt          of new_govt
+  | Punished
+  | Executed
+  | GameEndState     of game_end_state
+
+datatype watcher_response
+  = RuleSet          of rule_set
+  | CurrentGameState of current_game_state
+  | PresidentNow     of int
+  | ChancellorChosen of int
+  | NewGovt          of new_govt
+  | PolicyPassed     of side
+  | PlayersPunished  of list int
+  | PlayerExecuted   of int
+  | Veto
+  | GameEndState     of game_end_state
+
+datatype turn_role = Voter | President | Chancellor
+
+datatype server_response
+  = TurnRole    of turn_role
+  | General     of    general_response
+  | President   of  president_response
+  | Chancellor  of chancellor_response
+  | Watcher     of    watcher_response
+
 fun game_loop (gt : game_table) =
-    (*chancellor nom
-      vote on govt
-      new govt *)
     turn <- current_turn_state gt;
     now <- now;
     let fun action_not_overdue (delta : float) : bool =
@@ -498,68 +597,69 @@ fun game_loop (gt : game_table) =
             5 => return {} (* Liberals win *)
           | _ =>
             case turn.FascistPolicies of
-                6 => return {} (* Liberals lose *)
-              | _ => case turn.Chancellor of
-                         None =>
-                         if action_not_overdue gt.ChanNomTime
+                6 => return {} (* Fascists win *)
+              | _ =>
+                case turn.Chancellor of
+                    None =>
+                    if action_not_overdue gt.ChanNomTime
+                    then return {}
+                    else return {} (* Punish president *)
+                  | Some _ =>
+                    players <- players_in_game gt;
+                    votes <- queryL1 (SELECT *
+                                      FROM vote_on_govt
+                                      WHERE vote_on_govt.Game = {[gt.Game]}
+                                        AND vote_on_govt.Room = {[gt.Room]}
+                                        AND vote_on_govt.Turn = {[turn.Turn]});
+                    if List.length votes <> List.length players
+                    then if action_not_overdue gt.GovVoteTime
                          then return {}
-                         else return {} (* Punish president *)
-                       | Some _ =>
-                         players <- players_in_game gt;
-                         votes <- queryL1 (SELECT *
-                                           FROM vote_on_govt
-                                           WHERE vote_on_govt.Game = {[gt.Game]}
-                                             AND vote_on_govt.Room = {[gt.Room]}
-                                             AND vote_on_govt.Turn = {[turn.Turn]});
-                         if List.length votes <> List.length players
-                         then if action_not_overdue gt.GovVoteTime
-                              then return {}
-                              else return {} (* Punish non-voters *)
-                         else
-                             let val yes = List.filter (fn v =>     v.Vote) votes
-                                 val nos = List.filter (fn v => not v.Vote) votes
-                             in  if List.length nos >= List.length yes
-                                 then return {} (* vote failed *)
-                                 else (* New govt *)
-                                     (if turn.FascistPolicies < 3
-                                      then return {}
-                                      else
-                                          hitler_o <- oneOrNoRows1 (SELECT *
-                                                                    FROM hitler
-                                                                    WHERE hitler.Game = {[gt.Game]}
-                                                                      AND hitler.Room = {[gt.Room]}
-                                                                      AND hitler.Player =
-                                                                            {[Option.unsafeGet
-                                                                                turn.Chancellor]});
-                                          case hitler_o of
-                                              None   => return {}
-                                            | Some _ => return {} (* Liberals lose *));
-                                     case turn.PresDisc of
-                                         0 => if action_not_overdue gt.PresDisTime
-                                              then return {}
-                                              else return {} (* Punish president *)
-                                       | _ =>
-                                         veto_o <- oneOrNoRows1 (SELECT *
-                                                                 FROM veto
-                                                                 WHERE veto.Game = {[gt.Game]}
-                                                                   AND veto.Room = {[gt.Room]}
-                                                                   AND veto.Turn = {[turn.Turn]});
-                                         case veto_o of
-                                             Some _ => return {} (* Enact veto *)
-                                           | None =>
-                                             case turn.ChanEnac of
-                                                 0 => if action_not_overdue gt.ChanEnaTime
-                                                      then return {}
-                                                      else return {} (* Punish chancellor *)
-                                               | p => (* Enact policy *)
-                                                 case turn.FascistPolicies of
-                                                     1 => return {} (* investigate loyalty *)
-                                                   | 2 => return {} (* kill player *)
-                                                   | 3 => return {} (* etc *)
-                                                   | 4 => return {} (* etc *)
-                                                   | 5 => return {} (* etc *)
-                                                   | _ => return {}
-                             end
+                         else return {} (* Punish non-voters *)
+                    else
+                        let val yes = List.filter (fn v =>     v.Vote) votes
+                            val nos = List.filter (fn v => not v.Vote) votes
+                        in  if List.length nos >= List.length yes
+                            then return {} (* vote failed *)
+                            else (* New govt *)
+                                (if turn.FascistPolicies < 3
+                                 then return {}
+                                 else
+                                     hitler_o <- oneOrNoRows1 (SELECT *
+                                                               FROM hitler
+                                                               WHERE hitler.Game = {[gt.Game]}
+                                                                 AND hitler.Room = {[gt.Room]}
+                                                                 AND hitler.Player =
+                                                                 {[Option.unsafeGet
+                                                                 turn.Chancellor]});
+                                     case hitler_o of
+                                         None   => return {}
+                                       | Some _ => return {} (* Fascists win *));
+                                case turn.PresDisc of
+                                    0 => if action_not_overdue gt.PresDisTime
+                                         then return {}
+                                         else return {} (* Punish president *)
+                                  | _ =>
+                                    veto_o <- oneOrNoRows1 (SELECT *
+                                                            FROM veto
+                                                            WHERE veto.Game = {[gt.Game]}
+                                                              AND veto.Room = {[gt.Room]}
+                                                              AND veto.Turn = {[turn.Turn]});
+                                    case veto_o of
+                                        Some _ => return {} (* Enact veto *)
+                                      | None =>
+                                        case turn.ChanEnac of
+                                            0 => if action_not_overdue gt.ChanEnaTime
+                                                 then return {}
+                                                 else return {} (* Punish chancellor *)
+                                          | p => (* Enact policy *)
+                                            case turn.FascistPolicies of
+                                                1 => return {} (* investigate loyalty *)
+                                              | 2 => return {} (* call special election *)
+                                              | 3 => return {} (* policy peek *)
+                                              | 4 => return {} (* execution *)
+                                              | 5 => return {} (* veto *)
+                                              | _ => return {} (* Fascists win *)
+                        end
     end
 
 task periodic 1 = (* Loop for active games. *)

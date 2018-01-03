@@ -53,19 +53,21 @@ table ban :
 
 type game_id_t = [ Game = int, Room = int ]
 
-type game_time_table_t =
-     [ ChanNomTime = float
+type rule_set_t =
+     [ TimedGame   = bool
+     , KillPlayer  = bool
+     , ChanNomTime = float
      , GovVoteTime = float
      , PresDisTime = float
      , ChanEnaTime = float
      , ExecActTime = float
      ]
 
-type game_time_table = $game_time_table_t
+type rule_set = $rule_set_t
 
 type game_table_t =
      game_id_t
-    ++ game_time_table_t
+    ++ rule_set_t
     ++ [ CurrentTurn = int
        , GameStarted = time
        , LastAction  = time
