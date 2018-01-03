@@ -37,9 +37,9 @@ type deck = list side
 
 type decks = { Draw : deck, Discard : deck }
 
-fun shuffle (deck : deck) : transaction deck =
-    let fun take_item_at (i : int) (deck : deck) : side * deck =
-            let fun loop ((left, right, len) : deck * deck * int) : side * deck =
+fun shuffle [a] (deck : list a) : transaction (list a) =
+    let fun take_item_at [a] (i : int) (deck : list a) : a * list a =
+            let fun loop [a] ((left, right, len) : list a * list a * int) : a * list a =
                     case right of
                     | (card :: rest) =>
                       if len = i
@@ -48,7 +48,7 @@ fun shuffle (deck : deck) : transaction deck =
                     | _ => error <xml>Shuffle: This should never happen.</xml>
             in loop ([], deck, 0) end
 
-        fun go (shuffled, draw, len) : transaction deck =
+        fun go (shuffled, draw, len) : transaction (list a) =
             case len of
             | 1 => return (List.append draw shuffled)
             | _ => r <- rand;
