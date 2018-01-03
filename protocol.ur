@@ -30,18 +30,12 @@ datatype player_action
 datatype president_response
   = ChooseYourChancellor
   | DiscardCard          of (side * side * side)
-  | LoyaltyInvestigation of (int * side)
+  | LoyaltyInvestigation of { Player : int, Side : side }
   | PolicyPeek           of (side * side * side)
   | ExecutionPowerGranted
   | VetoProposed
 
 datatype chancellor_response = Policies of (side * side)
-
-type game_end_state
-  = { Winners  : side
-    , Hitler   :      int
-    , Liberals : list int
-    , Fascists : list int }
 
 type current_game_state
   = { President       : int
@@ -51,6 +45,12 @@ type current_game_state
     , Players         : list { Player : int, Username : string }
     , ChatHistory     : list { Player : int, When : time, Msg : string }
     }
+
+type game_end_state
+  = { Winners  : side
+    , Hitler   :      int
+    , Liberals : list int
+    , Fascists : list int }
 
 datatype new_govt = Passed | Failed | InChaos
 
@@ -70,18 +70,10 @@ datatype general_response
   | PresidentNow     of int
   | ChancellorChosen of int
   | NewGovt          of new_govt
-  | Punished
-  | Executed
-  | GameEndState     of game_end_state
-
-datatype watcher_response
-  = RuleSet          of rule_set
-  | CurrentGameState of current_game_state
-  | PresidentNow     of int
-  | ChancellorChosen of int
-  | NewGovt          of new_govt
   | PolicyPassed     of side
+  | Punished
   | PlayersPunished  of list int
+  | Executed
   | PlayerExecuted   of int
   | Veto
   | GameEndState     of game_end_state
@@ -93,4 +85,3 @@ datatype server_response
   | General     of    general_response
   | President   of  president_response
   | Chancellor  of chancellor_response
-  | Watcher     of    watcher_response

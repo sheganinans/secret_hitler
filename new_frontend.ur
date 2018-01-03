@@ -1,6 +1,9 @@
 open Auth
 open Tables
 
+fun mapM_ [a] [b] (f : a -> transaction b) (x : list a) : transaction {} =
+    _ <- List.mapM f x; return {}
+
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
             let val pw_hs = Auth.basic_hash signup.PassHash
@@ -57,13 +60,18 @@ and submit_login (login_form : player_name_and_pass) : transaction page =
                  main_menu {}
     end
 
-and banned (room_id : int) : transaction page =
-    (_, rt) <- player_in_room_exn room_id;
-    return <xml><body><table>
+and ban_player (room_id : int) : transaction page = return <xml></xml>
+
+and banned_body (rt : room_table) : xbody =
+    <xml><table>
       <tr><th>You have been banned from room: {[rt.Nam]}</th></tr>
       <tr>Appeal system coming soon!</tr>
       <tr><td><a link={main_menu {}}>Main Menu</a></td></tr>
-    </table></body></xml>
+    </table></xml>
+
+and banned (room_id : int) : transaction page =
+    (_, rt) <- player_in_room_exn room_id;
+    return <xml><body>{banned_body rt}</body></xml>
 
 and main_menu {} : transaction page =
     pt <- check_role Player;
@@ -284,28 +292,31 @@ and join_game (room_id : int) : transaction page =
     end
 
 and view_room (room_id : int) : transaction page =
-    pt <- check_role Player;
-    rt <- room_exists_exn room_id;
-    is_banned <- oneOrNoRows1 (SELECT *
-                               FROM ban
-                               WHERE ban.Player = {[pt.Player]}
-                                 AND ban.Room   = {[rt.Room]});
-    case is_banned of
-        Some _ => banned rt.Room
-      | None   =>
-        rp_o <- oneOrNoRows1 (SELECT *
-                              FROM room_player
-                              WHERE room_player.Player = {[pt.Player]}
-                                AND room_player.Room   = {[rt.Room]});
-        case rp_o of
-            None   => join_room room_id
-          | Some _ =>
-            player_list <- get_all_un_and_id_in_room room_id;
+    (pt, rt) <- only_if_player_not_banned_exn room_id;
+    rp_o <- oneOrNoRows1 (SELECT *
+                          FROM room_player
+                          WHERE room_player.Player = {[pt.Player]}
+                            AND room_player.Room   = {[rt.Room]});
+    case rp_o of
+        None   => join_room room_id
+      | Some _ =>
+        let fun no_game_yet {} : transaction xbody = return <xml></xml>
+
+            fun fascist_view {} : transaction xbody = return <xml></xml>
+
+            fun hitler_view {} : transaction xbody = return <xml></xml>
+
+            fun liberal_view {} : transaction xbody = return <xml></xml>
+
+            fun watcher_view {} : transaction xbody = return <xml></xml>
+
+        in  player_list <- get_all_un_and_id_in_room room_id;
             return <xml><body onload={return {}}><table>
               <tr><th>View Room {[show rt.Nam]}</th></tr>
               {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
                          player_list}
             </table></body></xml>
+        end
 
 and start_game (room_id : int) : transaction page =
     (pt, rt) <- only_if_owner_mod_exn room_id;
@@ -321,21 +332,21 @@ and start_game (room_id : int) : transaction page =
          else case List.find (fn (k,_) => k = players_l) player_numbers_table of
                   None    => return {}
                 | Some (_, lf) =>
-                  _ <- List.mapM (fn (i,p) =>
-                                     dml (UPDATE player_in_game
-                                          SET PlayerId = {[Some i]}
-                                          WHERE Room = {[rt.Room]}
-                                            AND Game = {[rt.CurrentGame]}
-                                            AND Player = {[p.Player]} ))
-                                 (List.mapi (fn i x => (i,x)) players);
+                  mapM_ (fn (i,p) =>
+                            dml (UPDATE player_in_game
+                                 SET PlayerId = {[Some i]}
+                                 WHERE Room = {[rt.Room]}
+                                   AND Game = {[rt.CurrentGame]}
+                                   AND Player = {[p.Player]} ))
+                        (List.mapi (fn i x => (i,x)) players);
 
-                  _ <- List.mapM (fn l =>
-                                     dml (INSERT INTO liberal (Game, Room, Player)
-                                          VALUES
-                                            ( {[rt.CurrentGame]}
-                                            , {[rt.Room]}
-                                            , {[l.Player]} )))
-                                 (List.take lf.Liberals players);
+                  mapM_ (fn l =>
+                            dml (INSERT INTO liberal (Game, Room, Player)
+                                 VALUES
+                                   ( {[rt.CurrentGame]}
+                                   , {[rt.Room]}
+                                   , {[l.Player]} )))
+                        (List.take lf.Liberals players);
 
                   dml (INSERT INTO hitler (Game, Room, Player)
                        VALUES
@@ -343,13 +354,13 @@ and start_game (room_id : int) : transaction page =
                          , {[rt.Room]}
                          , {[(List.nth players lf.Liberals |> Option.unsafeGet).Player]} ));
 
-                  _ <- List.mapM (fn f =>
-                                     dml (INSERT INTO fascist (Game, Room, Player)
-                                          VALUES
-                                            ( {[rt.CurrentGame]}
-                                            , {[rt.Room]}
-                                            , {[f.Player]} )))
-                                 (List.drop (lf.Liberals + 1) players);
+                  mapM_ (fn f =>
+                            dml (INSERT INTO fascist (Game, Room, Player)
+                                 VALUES
+                                   ( {[rt.CurrentGame]}
+                                   , {[rt.Room]}
+                                   , {[f.Player]} )))
+                        (List.drop (lf.Liberals + 1) players);
 
                   pres     <- get_pid 0;
                   nextPres <- get_pid 1;
@@ -469,13 +480,36 @@ and only_if_owner_mod_exn (room_id : int) : transaction (player_table * room_tab
     then return (pt, rt)
     else error <xml>{main_menu_body {}}</xml>
 
+and only_if_player_not_banned_exn (room_id : int) : transaction (player_table * room_table) =
+    pt <- check_role Player;
+    rt <- room_exists_exn room_id;
+    is_banned <- oneOrNoRows1 (SELECT *
+                               FROM ban
+                               WHERE ban.Player = {[pt.Player]}
+                                 AND ban.Room   = {[rt.Room]});
+    case is_banned of
+        Some _ => error <xml>{banned_body rt}</xml>
+      | None   => return (pt, rt)
+
+and if_player_in_good_standing (room_id : int)
+                               (page_f : player_table * room_table -> transaction page)
+    : transaction page =
+    (pt, rt) <- only_if_player_not_banned_exn room_id;
+    rp_o <- oneOrNoRows1 (SELECT *
+                          FROM room_player
+                          WHERE room_player.Player = {[pt.Player]}
+                            AND room_player.Room   = {[rt.Room]});
+    case rp_o of
+        None   => join_room room_id
+      | Some _ => page_f (pt, rt)
+
 and select_rooms_controlled {} : transaction (list room_table) =
     pt <- check_role Player;
     rl_1 <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
     rl_2 <- queryL1 (SELECT room.*
                      FROM (room
                          INNER JOIN mod
-                         ON  room.Room  = mod.Room
+                         ON room.Room   = mod.Room
                          AND mod.Player = {[pt.Player]}));
     return (List.append rl_1 rl_2)
 
@@ -499,31 +533,80 @@ fun update_last_action (gt : game_table) =
          WHERE Game = {[gt.Game]}
            AND Room = {[gt.Room]})
 
+
+fun skip_turn (gt : game_table) : transaction {} = return {}
+
+fun enact_punishment (gt : game_table)
+                     (kill_f : turn_table -> transaction {}) : transaction {} =
+    if gt.KillPlayer
+    then turn <- current_turn_state gt; kill_f turn
+    else skip_turn gt
+
+fun punish_president (gt : game_table) : transaction {} =
+    enact_punishment gt (fn turn =>
+        dml (INSERT INTO dead_player (Game, Room, Turn, Target)
+             VALUES ( {[turn.Game]}
+                    , {[turn.Room]}
+                    , {[turn.Turn]}
+                    , {[turn.President]} )))
+
+fun punish_chancellor (gt : game_table) : transaction {} =
+    enact_punishment gt (fn turn =>
+        dml (INSERT INTO dead_player (Game, Room, Turn, Target)
+             VALUES ( {[turn.Game]}
+                    , {[turn.Room]}
+                    , {[turn.Turn]}
+                    , {[Option.unsafeGet turn.Chancellor]} )))
+
+fun punish_non_voters (gt : game_table) : transaction {} =
+    enact_punishment gt (fn turn =>
+        player_list <- queryL1 (SELECT player_in_game.PlayerId
+                                FROM (player_in_game
+                                    LEFT JOIN vote_on_govt
+                                    ON  vote_on_govt.Game   = player_in_game.Game
+                                    AND vote_on_govt.Room   = player_in_game.Room
+                                    AND vote_on_govt.Player = player_in_game.Player)
+                                WHERE player_in_game.Watching = FALSE);
+        mapM_ (fn p =>
+                  dml (INSERT INTO dead_player (Game, Room, Turn, Target)
+                       VALUES ( {[turn.Game]}
+                              , {[turn.Room]}
+                              , {[turn.Turn]}
+                              , {[Option.unsafeGet p.PlayerId]} )))
+              player_list)
+
+fun vote_failed (gt : game_table) : transaction {} = return {}
+
+
 fun liberals_win (gt : game_table) : transaction {} = return {}
 
 fun fascists_win (gt : game_table) : transaction {} = return {}
 
-fun punish_president (gt : game_table) : transaction {} = return {}
-
-fun punish_chancellor (gt : game_table) : transaction {} = return {}
-
-fun punish_non_voters (gt : game_table) : transaction {} = return {}
-
-fun vote_failed (gt : game_table) : transaction {} = return {}
-
-fun enact_policy (gt : game_table) : transaction {} = return {}
 
 fun enact_veto (gt : game_table) : transaction {} = return {}
 
-fun investigate_loyalty (gt : game_table) : transaction {} = return {}
+fun enact_policy (gt : game_table) : transaction {} =
+    let fun investigate_loyalty (gt : game_table) : transaction {} = return {}
 
-fun call_special_election (gt : game_table) : transaction {} = return {}
+        fun call_special_election (gt : game_table) : transaction {} = return {}
 
-fun policy_peek (gt : game_table) : transaction {} = return {}
+        fun policy_peek (gt : game_table) : transaction {} = return {}
 
-fun execution (gt : game_table) : transaction {} = return {}
+        fun execution (gt : game_table) : transaction {} = return {}
 
-fun veto_power (gt : game_table) : transaction {} = return {}
+        fun veto_power (gt : game_table) : transaction {} = return {}
+
+    in  (* Enacting a policy may change the number of fascist policies. *)
+        turn <- current_turn_state gt;
+        (case turn.FascistPolicies of
+             0 => fn _ => return {}
+           | 1 => investigate_loyalty
+           | 2 => call_special_election
+           | 3 => policy_peek
+           | 4 => execution
+           | 5 => veto_power
+           | _ => fascists_win) gt
+    end
 
 fun game_loop (gt : game_table) =
     turn <- current_turn_state gt;
@@ -590,16 +673,7 @@ fun game_loop (gt : game_table) =
                                             0 => if action_not_overdue gt.ChanEnaTime
                                                  then return {}
                                                  else punish_chancellor gt
-                                          | p =>
-                                            enact_policy gt;
-                                            (case turn.FascistPolicies of
-                                                0 => fn _ => return {}
-                                              | 1 => investigate_loyalty
-                                              | 2 => call_special_election
-                                              | 3 => policy_peek
-                                              | 4 => execution
-                                              | 5 => veto_power
-                                              | _ => fascists_win) gt
+                                          | p => enact_policy gt
                         end
     end
 
@@ -610,7 +684,7 @@ task periodic 1 = (* Loop for active games. *)
                               INNER JOIN room
                               ON  game.Room = room.Room
                               AND game.Game = room.CurrentGame));
-        _ <- List.mapM game_loop games;
+        mapM_ game_loop games;
         return {}
 
 fun admin_view {} : transaction page =
