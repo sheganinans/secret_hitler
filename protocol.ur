@@ -4,6 +4,7 @@ datatype in_game
   =      VoterAction of vote
   |  PresidentAction of president
   | ChancellorAction of chancellor
+  |       ChatAction of chat_contents
 
 and vote
   = Ya
@@ -11,11 +12,11 @@ and vote
   | UnVote
 
 and president
-  = ChooseChancellor     of int
-  | PresidentDiscardCard of int
-  | InvestigateLoyalty   of int
-  | CallSpecialElection  of int
-  | ExecutePlayer        of int
+  = ChooseChancellor       of int
+  | PresidentDiscardCard   of int
+  | InvestigateLoyaltyAct  of int
+  | CallSpecialElectionAct of int
+  | ExecutePlayer          of int
   | PresidentVeto
 
 and chancellor

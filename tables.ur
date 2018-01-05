@@ -90,44 +90,47 @@ table player_in_game :
     , CONSTRAINT HasGlobalId FOREIGN KEY Player REFERENCES player (Player)
     , CONSTRAINT HasRoom FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
 
-table liberal :
-      in_game_id_per_game_t
-          CONSTRAINT HasPlayerInGame
-          FOREIGN KEY (Room, Game, InGameId)
-          REFERENCES player_in_game (Room, Game, InGameId)
-
-table fascist :
-      in_game_id_per_game_t
-          CONSTRAINT HasPlayerInGame
-          FOREIGN KEY (Room, Game, InGameId)
-          REFERENCES player_in_game (Room, Game, InGameId)
-
-table hitler :
-      in_game_id_per_game_t
-      CONSTRAINT UniqueHilterPerGame UNIQUE (Room, Game, InGameId)
-    , CONSTRAINT HasPlayerInGame
-      FOREIGN KEY (Room, Game, InGameId)
-      REFERENCES player_in_game (Room, Game, InGameId)
-
 type in_game_ordering_table_t = game_id_t ++ [ InGameId = int, Place = int ]
 
 type in_game_ordering_table = $in_game_ordering_table_t
 
 table in_game_ordering :
-      in_game_ordering_table_t CONSTRAINT UniqueOrderingPerGame
-                               UNIQUE (Room, Game, InGameId, Place)
-    , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
+      in_game_ordering_table_t PRIMARY KEY (Room, Game, Place)
+    , CONSTRAINT UniqueOrderingPerGame UNIQUE (Room, Game, Place, InGameId)
     , CONSTRAINT InGame FOREIGN KEY (Room, Game, InGameId)
                  REFERENCES player_in_game (Room, Game, InGameId)
+
+type in_game_place_per_game_t = [ Place = int ] ++ game_id_t
+
+type in_game_place_per_game = $in_game_place_per_game_t
+
+table liberal :
+      in_game_place_per_game_t
+          CONSTRAINT HasPlaceInGame
+          FOREIGN KEY (Room, Game, Place)
+          REFERENCES in_game_ordering (Room, Game, Place)
+
+table fascist :
+      in_game_place_per_game_t
+          CONSTRAINT HasPlaceInGame
+          FOREIGN KEY (Room, Game, Place)
+          REFERENCES in_game_ordering (Room, Game, Place)
+
+table hitler :
+      in_game_place_per_game_t
+      CONSTRAINT UniqueHilterPerGame UNIQUE (Room, Game, Place)
+    , CONSTRAINT HasPlaceInGame
+      FOREIGN KEY (Room, Game, Place)
+      REFERENCES in_game_ordering (Room, Game, Place)
 
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
 type game_flow_t
-  = [ ChancellorSelectionDone = bool
-    ,                VoteDone = bool
-    ,             DiscardDone = bool
-    ,            EnactionDone = bool
-    ,          ExecActionDone = bool
+  = [   ChancSelDone = bool
+    ,       VoteDone = bool
+    ,    DiscardDone = bool
+    ,   EnactionDone = bool
+    , ExecActionDone = bool
     ]
 
 type deck_state_t
@@ -151,28 +154,34 @@ type turn_table = $turn_table_t
 
 table turn :
       turn_table_t PRIMARY KEY (Room, Game, Turn)
+    , CONSTRAINT  PresidentInOrdering FOREIGN KEY (Room, Game, President)
+                 REFERENCES in_game_ordering (Room, Game, Place)
+    , CONSTRAINT   NextPresInOrdering FOREIGN KEY (Room, Game, NextPres)
+                 REFERENCES in_game_ordering (Room, Game, Place)
+    , CONSTRAINT ChancellorInOrdering FOREIGN KEY (Room, Game, Chancellor)
+                 REFERENCES in_game_ordering (Room, Game, Place)
     , CONSTRAINT UniquePresident  UNIQUE (Room, Game, Turn, President)
     , CONSTRAINT UniqueNextPres   UNIQUE (Room, Game, Turn, NextPres)
     , CONSTRAINT UniqueChancellor UNIQUE (Room, Game, Turn, Chancellor)
     , CONSTRAINT     PresNotDummy CHECK President <> 0
     , CONSTRAINT NextPresNotDummy CHECK  NextPres <> 0
-    , CONSTRAINT ChancellorSelectedNotDummy
-                 CHECK IF ChancellorSelectionDone THEN Chancellor <> 0 ELSE TRUE
     , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
     , CONSTRAINT PresIsPlayer FOREIGN KEY (Room, Game, President)
-                 REFERENCES player_in_game (Room, Game, InGameId)
+                 REFERENCES in_game_ordering (Room, Game, Place)
     , CONSTRAINT NextPresIsPlayer FOREIGN KEY (Room, Game, NextPres)
-                 REFERENCES player_in_game (Room, Game, InGameId)
+                 REFERENCES in_game_ordering (Room, Game, Place)
     , CONSTRAINT ChancellorIsPlayer FOREIGN KEY (Room, Game, Chancellor)
-                 REFERENCES player_in_game (Room, Game, InGameId)
+                 REFERENCES in_game_ordering (Room, Game, Place)
     , CONSTRAINT RejectCount CHECK RejectCount >= 0 AND RejectCount <= 3
     , CONSTRAINT AllowedDisc CHECK PresDisc >= 0 AND PresDisc <= 3
     , CONSTRAINT AllowedEnac CHECK ChanEnac >= 0 AND ChanEnac <= 3
-    , CONSTRAINT VoteBeforeDisc  CHECK IF DiscardDone THEN VoteDone ELSE TRUE
-    , CONSTRAINT DiscardNotDummy CHECK IF DiscardDone THEN PresDisc <> 0 ELSE TRUE
-    , CONSTRAINT DiscardBeforeEnaction CHECK IF EnactionDone THEN DiscardDone ELSE TRUE
-    , CONSTRAINT EnactionNotDummy CHECK IF EnactionDone THEN ChanEnac <> 0 ELSE TRUE
-    , CONSTRAINT ExecActionAfterEnac CHECK IF ExecActionDone THEN EnactionDone ELSE TRUE
+    , CONSTRAINT ChancSeldNotDummy     CHECK IF   ChancSelDone THEN Chancellor <> 0 ELSE TRUE
+    , CONSTRAINT ChancBeforeVote       CHECK IF       VoteDone THEN ChancSelDone ELSE TRUE
+    , CONSTRAINT VoteBeforeDisc        CHECK IF    DiscardDone THEN VoteDone ELSE TRUE
+    , CONSTRAINT DiscardNotDummy       CHECK IF    DiscardDone THEN PresDisc <> 0 ELSE TRUE
+    , CONSTRAINT DiscardBeforeEnaction CHECK IF   EnactionDone THEN DiscardDone ELSE TRUE
+    , CONSTRAINT EnactionNotDummy      CHECK IF   EnactionDone THEN ChanEnac <> 0 ELSE TRUE
+    , CONSTRAINT ExecActionAfterEnac   CHECK IF ExecActionDone THEN EnactionDone ELSE TRUE
     , CONSTRAINT DrawDeckGTE0 CHECK LiberalsInDraw + FascistsInDraw >= 0
     , CONSTRAINT LibPolGTE0AndLTE5 CHECK LiberalPolicies >= 0 AND LiberalPolicies <= 5
     , CONSTRAINT FasPolGTE0AndLTE5 CHECK FascistPolicies >= 0 AND FascistPolicies <= 6
@@ -193,26 +202,31 @@ table turn :
               + (IF NOT Trd THEN 1 ELSE 0)
               = {[number_of_fascist_policies]}
 
-type vote_on_govt_table_t = turn_id_t ++ [ Player = int, Vote = bool ]
+type vote_on_govt_table_t = turn_id_t ++ [ Place = int, Vote = bool ]
 
 type vote_on_govt_table = $vote_on_govt_table_t
 
 table vote_on_govt :
-      vote_on_govt_table_t
-          CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
-      , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+      vote_on_govt_table_t PRIMARY KEY (Room, Game, Turn, Place)
+      , CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
+      , CONSTRAINT InGameOrdering FOREIGN KEY (Room, Game, Place)
+                   REFERENCES in_game_ordering (Room, Game, Place)
 
-type president_action_table_t = turn_id_t ++ [ Target = int ]
+type president_action_table_t = turn_id_t ++ [ Place = int ]
 
 table loyalty_investigation :
       president_action_table_t
           CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
-      , CONSTRAINT TargetIsPlayer FOREIGN KEY Target REFERENCES player (Player)
+      , CONSTRAINT InGameOrdering FOREIGN KEY (Room, Game, Place)
+                   REFERENCES in_game_ordering (Room, Game, Place)
+      , CONSTRAINT UniqueInvestigation UNIQUE (Room, Game, Turn)
 
 table dead_player :
       president_action_table_t
           CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
-      , CONSTRAINT TargetIsPlayer FOREIGN KEY Target REFERENCES player (Player)
+      , CONSTRAINT InGameOrdering FOREIGN KEY (Room, Game, Place)
+                   REFERENCES in_game_ordering (Room, Game, Place)
+      , CONSTRAINT UniqueDeathPerGame UNIQUE (Room, Game, Place)
 
 type veto_table_t = turn_id_t ++ [ President = int, Chancellor = int ]
 
