@@ -16,8 +16,8 @@ fun signup_page {} : transaction page =
                     dml (INSERT INTO player (Player, Username, PassHash)
                          VALUES
                            ( {[player_id]}
-                           , {[signup.Username]}
-                           , {[pw_hs]} ));
+                             , {[signup.Username]}
+                             , {[pw_hs]} ));
                     set_username_cookie signup.Username pw_hs;
                     main_menu {}
             end
@@ -95,11 +95,11 @@ and new_room {} : transaction page =
             dml (INSERT INTO room (Room, OwnedBy, Nam, Pass, CurrentGame, InGame)
                  VALUES
                    ( {[room_id]}
-                   , {[pt.Player]}
-                   , {[room_form.RoomName]}
-                   , {[pass]}
-                   , 0
-                   , FALSE ));
+                     , {[pt.Player]}
+                     , {[room_form.RoomName]}
+                     , {[pass]}
+                     , 0
+                     , FALSE ));
             dml (INSERT INTO room_player (Room, Player, SetBy, Time)
                  VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}));
             view_room room_id
@@ -126,32 +126,32 @@ and new_game {} : transaction page =
                 now <- now;
                 dml (INSERT INTO game
                        ( Room
-                       , Game
-                       , TimedGame
-                       , KillPlayer
-                       , ChanNomTime
-                       , GovVoteTime
-                       , PresDisTime
-                       , ChanEnaTime
-                       , ExecActTime
-                       , CurrentTurn
-                       , GameStarted
-                       , LastAction
-                       , GameEnded )
-                 VALUES
-                   ( {[rt.Room]}
-                   , {[rt.CurrentGame]}
-                   , {[rule_set.TimedGame]}
-                   , {[rule_set.KillPlayer]}
-                   , {[rule_set.ChanNomTime]}
-                   , {[rule_set.GovVoteTime]}
-                   , {[rule_set.PresDisTime]}
-                   , {[rule_set.ChanEnaTime]}
-                   , {[rule_set.ExecActTime]}
-                   , 0
-                   , {[now]}
-                   , {[now]}
-                   , {[None]} )));
+                         , Game
+                         , TimedGame
+                         , KillPlayer
+                         , ChanNomTime
+                         , GovVoteTime
+                         , PresDisTime
+                         , ChanEnaTime
+                         , ExecActTime
+                         , CurrentTurn
+                         , GameStarted
+                         , LastAction
+                         , GameEnded )
+                     VALUES
+                       ( {[rt.Room]}
+                         , {[rt.CurrentGame]}
+                         , {[rule_set.TimedGame]}
+                         , {[rule_set.KillPlayer]}
+                         , {[rule_set.ChanNomTime]}
+                         , {[rule_set.GovVoteTime]}
+                         , {[rule_set.PresDisTime]}
+                         , {[rule_set.ChanEnaTime]}
+                         , {[rule_set.ExecActTime]}
+                         , 0
+                         , {[now]}
+                         , {[now]}
+                         , {[None]} )));
             view_room rt.Room
 
         fun new_game_page (room_id : int) {} : transaction page =
@@ -272,20 +272,20 @@ and join_game (room_id : int) : transaction page =
                                            AND player_in_game.Game = {[rt.CurrentGame]});
                 dml (INSERT INTO player_in_game
                        ( Room
-                       , Game
-                       , Player
-                       , Client
-                       , Chan
-                       , Watching
-                       , InGameId )
+                         , Game
+                         , Player
+                         , Client
+                         , Chan
+                         , Watching
+                         , InGameId )
                      VALUES
                        ( {[rt.Room]}
-                       , {[rt.CurrentGame]}
-                       , {[pt.Player]}
-                       , {[me]}
-                       , {[chan]}
-                       , {[if rt.InGame then True else not playing.Playing]}
-                       , {[num_in_game + 1]} )));
+                         , {[rt.CurrentGame]}
+                         , {[pt.Player]}
+                         , {[me]}
+                         , {[chan]}
+                         , {[if rt.InGame then True else not playing.Playing]}
+                         , {[num_in_game + 1]} )));
             view_room room_id
 
     in  (pt, rt) <- player_in_room_exn room_id;
@@ -323,6 +323,7 @@ and view_room (room_id : int) : transaction page =
                         }
                       , GameRole          = Watcher
                       , KnownAffiliations = []
+                      , Top3CardsInDraw   = []
                       };
         let fun no_game_yet {} : transaction xbody = return <xml></xml>
 
@@ -353,116 +354,119 @@ and start_game (room_id : int) : transaction page =
     let val in_game_players = List.filter (fn p => not p.Watching) player_list
         val in_game_players_l = List.length in_game_players
         val get_pid = get_player_from_in_game_id rt
-    in  (if in_game_players_l < 5 || in_game_players_l > 10
-         then return {}
-         else case List.find (fn (k,_) => k = in_game_players_l) player_numbers_table of
-                  None    => return {}
-                | Some (_, lf) =>
-                  in_game_players <- Utils.shuffle in_game_players;
+    in  (case List.find (fn (k,_) => k = in_game_players_l) player_numbers_table of
+             None    => return {}
+           | Some (_, lf) =>
+             in_game_players <- Utils.shuffle in_game_players;
 
-                  mapM_ (fn (i,p) => dml (INSERT INTO in_game_ordering
-                                            (Room, Game, InGameId, Place)
-                                          VALUES
-                                            ( {[rt.Room]}
-                                            , {[rt.CurrentGame]}
-                                            , {[p.InGameId]}
-                                            , {[i]} )))
-                        (List.mapi (fn i p => (i+1,p)) in_game_players);
+             mapM_ (fn (i,p) => dml (INSERT INTO table_ordering
+                                       (Room, Game, InGameId, Place)
+                                     VALUES
+                                       ( {[rt.Room]}
+                                         , {[rt.CurrentGame]}
+                                         , {[p.InGameId]}
+                                         , {[i]} )))
+                   (List.mapi (fn i p => (i+1,p)) in_game_players);
 
-                  in_ordering_players
-                      <- queryL1 (SELECT *
-                                  FROM in_game_ordering
-                                  WHERE in_game_ordering.Room = {[rt.Room]}
-                                    AND in_game_ordering.Game = {[rt.CurrentGame]});
+             in_ordering_players
+             <- queryL1 (SELECT *
+                         FROM table_ordering
+                         WHERE table_ordering.Room = {[rt.Room]}
+                           AND table_ordering.Game = {[rt.CurrentGame]});
 
-                  in_ordering_players <- Utils.shuffle in_ordering_players;
+             in_ordering_players <- Utils.shuffle in_ordering_players;
 
-                  mapM_ (fn i =>
-                            dml (INSERT INTO liberal (Room, Game, Place)
-                                 VALUES
-                                   ( {[rt.Room]}
-                                   , {[rt.CurrentGame]}
-                                   , {[i.Place]} )))
-                        (List.take lf.Liberals in_ordering_players);
+             mapM_ (fn i =>
+                       dml (INSERT INTO liberal (Room, Game, Place)
+                            VALUES
+                              ( {[rt.Room]}
+                                , {[rt.CurrentGame]}
+                                , {[i.Place]} )))
+                   (List.take lf.Liberals in_ordering_players);
 
-                  dml (INSERT INTO hitler (Room, Game, Place)
-                       VALUES
-                         ( {[rt.Room]}
-                         , {[rt.CurrentGame]}
-                         , {[List.nth in_ordering_players lf.Liberals
-                               |> Option.unsafeGet
-                               |> fn p => p.Place]} ));
+             dml (INSERT INTO hitler (Room, Game, Place)
+                  VALUES
+                    ( {[rt.Room]}
+                      , {[rt.CurrentGame]}
+                      , {[List.nth in_ordering_players lf.Liberals
+                            |> Option.unsafeGet
+                            |> fn p => p.Place]} ));
 
-                  mapM_ (fn i =>
-                            dml (INSERT INTO fascist (Room, Game, Place)
-                                 VALUES
-                                   ( {[rt.Room]}
-                                   , {[rt.CurrentGame]}
-                                   , {[i.Place]} )))
-                        (List.drop (lf.Liberals + 1) in_ordering_players);
+             mapM_ (fn i =>
+                       dml (INSERT INTO fascist (Room, Game, Place)
+                            VALUES
+                              ( {[rt.Room]}
+                                , {[rt.CurrentGame]}
+                                , {[i.Place]} )))
+                   (List.drop (lf.Liberals + 1) in_ordering_players);
 
-                  deck <- next_turn_deck_state { LiberalsInDraw = number_of_liberal_policies
-                                               , FascistsInDraw = number_of_fascist_policies
-                                               , LiberalsInDisc = 0
-                                               , FascistsInDisc = 0 };
-                  dml (INSERT INTO turn
-                         ( Game
-                         , Room
-                         , Turn
-                         , President
-                         , NextPres
-                         , Chancellor
-                         , RejectCount
-                         , ChancSelDone
-                         , VoteDone
-                         , DiscardDone
-                         , EnactionDone
-                         , ExecActionDone
-                         , LiberalsInDraw
-                         , FascistsInDraw
-                         , LiberalsInDisc
-                         , FascistsInDisc
-                         , Fst
-                         , Snd
-                         , Trd
-                         , PresDisc
-                         , ChanEnac
-                         , LiberalPolicies
-                         , FascistPolicies )
-                       VALUES
-                         ( {[rt.CurrentGame]}
-                         , {[rt.Room]}
-                         , 1
-                         , 1
-                         , 2
-                         , 0
-                         , 0
-                         , FALSE
-                         , FALSE
-                         , FALSE
-                         , FALSE
-                         , FALSE
-                         , {[deck.LibDraw]}
-                         , {[deck.FasDraw]}
-                         , 0
-                         , 0
-                         , {[deck.Fst]}
-                         , {[deck.Snd]}
-                         , {[deck.Trd]}
-                         , 0
-                         , 0
-                         , 0
-                         , 0 ));
+             deck <- next_turn_deck_state { LiberalsInDraw = number_of_liberal_policies
+                                          , FascistsInDraw = number_of_fascist_policies
+                                          , LiberalsInDisc = 0
+                                          , FascistsInDisc = 0 };
+             dml (INSERT INTO turn
+                    ( Room
+                      , Game
+                      , Turn
+                      , President
+                      , NextPres
+                      , Chancellor
+                      , RejectCount
+                      , ChancSelDone
+                      , VoteDone
+                      , DiscardDone
+                      , EnactionDone
+                      , ExecActionDone
+                      , LiberalsInDraw
+                      , FascistsInDraw
+                      , LiberalsInDisc
+                      , FascistsInDisc
+                      , Fst
+                      , Snd
+                      , Trd
+                      , PresDisc
+                      , ChanEnac
+                      , LiberalPolicies
+                      , FascistPolicies )
+                  VALUES
+                    ( {[rt.Room]}
+                      , {[rt.CurrentGame]}
+                      , 1
+                      , 1
+                      , 2
+                      , 0
+                      , 0
+                      , FALSE
+                      , FALSE
+                      , FALSE
+                      , FALSE
+                      , FALSE
+                      , {[deck.LibDraw]}
+                      , {[deck.FasDraw]}
+                      , 0
+                      , 0
+                      , {[deck.Fst]}
+                      , {[deck.Snd]}
+                      , {[deck.Trd]}
+                      , 0
+                      , 0
+                      , 0
+                      , 0 ));
 
-                  dml (UPDATE room
-                       SET InGame = TRUE
-                       WHERE Room = {[rt.Room]});
+             dml (UPDATE room
+                  SET InGame = TRUE
+                  WHERE Room = {[rt.Room]});
 
-                  now <- now;
-                  dml (UPDATE game
-                       SET LastAction = {[now]}
-                       WHERE Room = {[rt.Room]}
-                         AND Game = {[rt.CurrentGame]}));
+             now <- now;
+             dml (UPDATE game
+                  SET LastAction = {[now]}
+                  WHERE Room = {[rt.Room]}
+                    AND Game = {[rt.CurrentGame]});
+
+             dml (UPDATE game
+                  SET CurrentTurn = 1
+                  WHERE Room = {[rt.Room]}
+                    AND Game = {[rt.CurrentGame]}));
         view_room room_id
     end
 
@@ -527,12 +531,14 @@ and player_in_room_exn (room_id : int) : transaction (player_table * room_table)
         None => error <xml>{main_menu_body ()}</xml>
       | Some _ => return (pt, rt)
 
-and player_in_game_exn (room_id : int) : transaction (player_table           *
-                                                      room_table             *
-                                                      game_table             *
-                                                      player_connection      *
-                                                      in_game_ordering_table *
-                                                      turn_table) =
+and player_in_game_exn (room_id : int)
+    : transaction { Player     :         player_table
+                  , Room       :           room_table
+                  , Game       :           game_table
+                  , Conn       : player_connection
+                  , TableOrder : table_ordering_table
+                  , Turn       :           turn_table
+                  } =
     (pt, rt) <- player_in_room_exn room_id;
     gt <- oneRow1 (SELECT *
                    FROM game
@@ -543,16 +549,16 @@ and player_in_game_exn (room_id : int) : transaction (player_table           *
                     WHERE player_in_game.Room = {[rt.Room]}
                       AND player_in_game.Game = {[rt.CurrentGame]});
     ot <- oneRow1 (SELECT *
-                   FROM in_game_ordering
-                   WHERE in_game_ordering.Room = {[rt.Room]}
-                     AND in_game_ordering.Game = {[rt.CurrentGame]}
-                     AND in_game_ordering.InGameId = {[pc.InGameId]});
+                   FROM table_ordering
+                   WHERE table_ordering.Room = {[rt.Room]}
+                     AND table_ordering.Game = {[rt.CurrentGame]}
+                     AND table_ordering.InGameId = {[pc.InGameId]});
     tt <- oneRow1 (SELECT *
                    FROM turn
                    WHERE turn.Room = {[rt.Room]}
                      AND turn.Game = {[rt.CurrentGame]}
                      AND turn.Turn = {[gt.CurrentTurn]});
-    return (pt, rt, gt, pc, ot, tt)
+    return { Player = pt, Room = rt, Game =  gt, Conn = pc, TableOrder =  ot, Turn = tt }
 
 and only_if_owner_mod_exn (room_id : int) : transaction (player_table * room_table) =
     (pt, rt) <- player_in_room_exn room_id;
@@ -618,48 +624,96 @@ fun update_last_action (gt : game_table) =
          WHERE Room = {[gt.Room]}
            AND Game = {[gt.Game]})
 
-fun update_vote (room_id : int) (a : Protocol.vote) : transaction {} =
-    (_, _, _, _, ot, tt) <- player_in_game_exn room_id;
-    case a of
-        UnVote => dml (DELETE FROM vote_on_govt
+fun update_vote (room_id : int) (vote_b : option bool) : transaction {} =
+    pig <- player_in_game_exn room_id;
+    let val (tt, ot) = ( pig.Turn
+                       , pig.TableOrder )
+    in  if tt.VoteDone
+        then return {}
+        else vote_o <- oneOrNoRows1 (SELECT *
+                                     FROM vote
+                                     WHERE vote.Room  = {[tt.Room]}
+                                       AND vote.Game  = {[tt.Game]}
+                                       AND vote.Place = {[ot.Place]});
+             case vote_o of
+                 None =>
+                 dml (INSERT INTO vote (Room, Game, Turn, Place, Vote)
+                      VALUES ( {[tt.Room]}
+                          , {[tt.Game]}
+                          , {[tt.Turn]}
+                          , {[ot.Place]}
+                          , {[vote_b]} ))
+               | Some _ =>
+                 dml (UPDATE vote
+                      SET Vote = {[vote_b]}
+                      WHERE Room  = {[tt.Room]}
+                        AND Game  = {[tt.Game]}
+                        AND Turn  = {[tt.Turn]}
+                        AND Place = {[ot.Place]})
+    end
+
+fun eval_president_action (room_id : int) (a : Protocol.president) : transaction {} =
+    pig <- player_in_game_exn room_id;
+    let val (tt, ot) = ( pig.Turn
+                       , pig.TableOrder )
+        fun discard_card (card_id : int) : transaction {} = return {}
+        fun investigate_loyalty (place : int) : transaction {} = return {}
+        fun call_special_election (place : int) : transaction {} = return {}
+        fun execute_player (place : int) : transaction {} = return {}
+        fun president_veto {} : transaction {} = return {}
+    in  if ot.Place <> tt.President
+        then return {}
+        else
+            case a of
+                StandardAction a =>
+                (case a of
+                     ChooseChancellor chan_id =>
+                     if tt.ChancSelDone
+                     then return {}
+                     else
+                         dml (UPDATE turn
+                              SET Chancellor = {[chan_id]}
+                              WHERE Room = {[tt.Room]}
+                                AND Game = {[tt.Game]}
+                                AND Turn = {[tt.Turn]});
+                         dml (UPDATE turn
+                              SET ChancSelDone = TRUE
                               WHERE Room = {[tt.Room]}
                                 AND Game = {[tt.Game]}
                                 AND Turn = {[tt.Turn]})
-      | _ => let val vote = if a = Ya then True else False
-             in  vote_o <- oneOrNoRows1 (SELECT *
-                                         FROM vote_on_govt
-                                         WHERE vote_on_govt.Room  = {[tt.Room]}
-                                           AND vote_on_govt.Game  = {[tt.Game]}
-                                           AND vote_on_govt.Place = {[ot.Place]});
-                 case vote_o of
-                     None =>
-                     dml (INSERT INTO vote_on_govt (Room, Game, Turn, Place, Vote)
-                          VALUES ( {[tt.Room]}
-                                 , {[tt.Game]}
-                                 , {[tt.Turn]}
-                                 , {[ot.Place]}
-                                 , {[vote]} ))
-                   | Some _ =>
-                     dml (UPDATE vote_on_govt
-                          SET Vote = {[vote]}
-                          WHERE Room  = {[tt.Room]}
-                            AND Game  = {[tt.Game]}
-                            AND Turn  = {[tt.Turn]}
-                            AND Place = {[ot.Place]})
-             end
+                   | PresidentDiscardCard card_id =>
+                     if tt.DiscardDone
+                     then return {}
+                     else (if card_id > 3 || card_id <= 0
+                           then return {}
+                           else
+                               dml (UPDATE turn
+                                    SET PresDisc = {[card_id]}
+                                    WHERE Room = {[tt.Room]}
+                                      AND Game = {[tt.Game]}
+                                      AND Turn = {[tt.Turn]});
+                               dml (UPDATE turn
+                                    SET DiscardDone = TRUE
+                                    WHERE Room = {[tt.Room]}
+                                      AND Game = {[tt.Game]}
+                                      AND Turn = {[tt.Turn]})))
+              | ExecutiveActionMsg a =>
+                if tt.ExecActionDone
+                then return {}
+                else
+                    (case (tt.FascistPolicies, a) of
+                         (1, InvestigateLoyaltyAct place) => investigate_loyalty place
+                       | (2, CallSpecialElectionAct place) => call_special_election place
+                       | (3, ExecutePlayer place) => execute_player place
+                       | (4, PresidentVeto) => president_veto {}
+                       | _ => return {})
+    end
 
 fun player_action (room_id : int) (action : Protocol.in_game) : transaction {} =
-    (pt, rt, gt, pct, ot, tt) <- player_in_game_exn room_id;
+    pig <- player_in_game_exn room_id;
     case action of
-      VoterAction a => update_vote room_id a
-    | PresidentAction a =>
-      (case a of
-           ChooseChancellor _ => return {}
-         | PresidentDiscardCard _ => return {}
-         | InvestigateLoyaltyAct _ => return {}
-         | CallSpecialElectionAct _ => return {}
-         | ExecutePlayer _ => return {}
-         | PresidentVeto => return {})
+      VoterAction vote_b => update_vote room_id vote_b
+    | PresidentAction a => eval_president_action room_id a
     | ChancellorAction a =>
       (case a of
            EnactPolicy _ => return {}
@@ -679,53 +733,53 @@ fun skip_turn (gt : game_table) : transaction {} =
                                  , LiberalsInDisc = current_turn.LiberalsInDisc
                                  , FascistsInDisc = current_turn.FascistsInDisc };
     dml (INSERT INTO turn
-               ( Room
-               , Game
-               , Turn
-               , President
-               , NextPres
-               , Chancellor
-               , RejectCount
-               , ChancSelDone
-               , VoteDone
-               , DiscardDone
-               , EnactionDone
-               , ExecActionDone
-               , LiberalsInDraw
-               , FascistsInDraw
-               , LiberalsInDisc
-               , FascistsInDisc
-               , Fst
-               , Snd
-               , Trd
-               , PresDisc
-               , ChanEnac
-               , LiberalPolicies
-               , FascistPolicies )
-             VALUES
-               ( {[current_turn.Room]}
-               , {[current_turn.Game]}
-               , {[current_turn.Turn + 1]}
-               , {[current_turn.NextPres]}
-               , {[current_turn.NextPres + 1]} (* TODO add rollover and skipping dead *)
-               , 0
-               , {[current_turn.RejectCount + 1]}
-               , FALSE
-               , FALSE
-               , FALSE
-               , FALSE
-               , FALSE
-               , {[deck.LibDraw]}
-               , {[deck.FasDraw]}
-               , {[deck.LibDisc]}
-               , {[deck.LibDisc]}
-               , {[deck.Fst]}
-               , {[deck.Snd]}
-               , {[deck.Trd]}
-               , 0
-               , 0
-               , {[current_turn.LiberalPolicies]}
-               , {[current_turn.FascistPolicies]} ))
+           ( Room
+             , Game
+             , Turn
+             , President
+             , NextPres
+             , Chancellor
+             , RejectCount
+             , ChancSelDone
+             , VoteDone
+             , DiscardDone
+             , EnactionDone
+             , ExecActionDone
+             , LiberalsInDraw
+             , FascistsInDraw
+             , LiberalsInDisc
+             , FascistsInDisc
+             , Fst
+             , Snd
+             , Trd
+             , PresDisc
+             , ChanEnac
+             , LiberalPolicies
+             , FascistPolicies )
+         VALUES
+           ( {[current_turn.Room]}
+             , {[current_turn.Game]}
+             , {[current_turn.Turn + 1]}
+             , {[current_turn.NextPres]}
+             , {[current_turn.NextPres + 1]} (* TODO add rollover and skipping dead *)
+             , 0
+             , {[current_turn.RejectCount + 1]}
+             , FALSE
+             , FALSE
+             , FALSE
+             , FALSE
+             , FALSE
+             , {[deck.LibDraw]}
+             , {[deck.FasDraw]}
+             , {[deck.LibDisc]}
+             , {[deck.LibDisc]}
+             , {[deck.Fst]}
+             , {[deck.Snd]}
+             , {[deck.Trd]}
+             , 0
+             , 0
+             , {[current_turn.LiberalPolicies]}
+             , {[current_turn.FascistPolicies]} ))
 
 fun enact_skip_turn_or_kill (gt : game_table)
                             (kill_f : turn_table -> transaction {}) : transaction {} =
@@ -740,35 +794,35 @@ fun punish_president (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>
         dml (INSERT INTO dead_player (Room, Game, Turn, Place)
              VALUES ( {[turn.Room]}
-                    , {[turn.Game]}
-                    , {[turn.Turn]}
-                    , {[turn.President]} ));
+                 , {[turn.Game]}
+                 , {[turn.Turn]}
+                 , {[turn.President]} ));
         send_punished_list gt (turn.President :: []))
 
 fun punish_chancellor (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>
         dml (INSERT INTO dead_player (Room, Game, Turn, Place)
              VALUES ( {[turn.Room]}
-                    , {[turn.Game]}
-                    , {[turn.Turn]}
-                    , {[turn.Chancellor]} ));
+                 , {[turn.Game]}
+                 , {[turn.Turn]}
+                 , {[turn.Chancellor]} ));
         send_punished_list gt (turn.Chancellor :: []))
 
 fun punish_non_voters (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>
-        non_voters <- queryL1 (SELECT in_game_ordering.Place
-                               FROM (in_game_ordering
-                                   LEFT JOIN vote_on_govt
-                                   ON in_game_ordering.Place = vote_on_govt.Place)
-                               WHERE in_game_ordering.Room = {[gt.Room]}
-                                 AND in_game_ordering.Game = {[gt.Game]});
+        non_voters <- queryL1 (SELECT table_ordering.Place
+                               FROM (table_ordering
+                                   LEFT JOIN vote
+                                   ON table_ordering.Place = vote.Place)
+                               WHERE table_ordering.Room = {[gt.Room]}
+                                 AND table_ordering.Game = {[gt.Game]});
 
         mapM_ (fn p =>
                   dml (INSERT INTO dead_player (Room, Game, Turn, Place)
                        VALUES ( {[turn.Room]}
-                              , {[turn.Game]}
-                              , {[turn.Turn]}
-                              , {[p.Place]} )))
+                           , {[turn.Game]}
+                           , {[turn.Turn]}
+                           , {[p.Place]} )))
               non_voters;
         send_punished_list gt (List.mp (fn n => n.Place) non_voters))
 
@@ -834,51 +888,51 @@ fun game_loop (gt : game_table) =
                   | _ =>
                     players <- players_in_game gt;
                     votes <- queryL1 (SELECT *
-                                      FROM vote_on_govt
-                                      WHERE vote_on_govt.Room = {[gt.Room]}
-                                        AND vote_on_govt.Game = {[gt.Game]}
-                                        AND vote_on_govt.Turn = {[turn.Turn]});
-                    if List.length votes <> List.length players
-                    then if action_not_overdue gt.GovVoteTime
-                         then return {}
-                         else punish_non_voters gt
-                    else
-                        let val yes = List.filter (fn v =>     v.Vote) votes
-                            val nos = List.filter (fn v => not v.Vote) votes
-                        in  if List.length nos >= List.length yes
-                            then vote_failed gt
-                            else (* New govt *)
-                                (if turn.FascistPolicies <= 3
-                                 then return {}
-                                 else
-                                     hitler_o <- oneOrNoRows1 (SELECT *
-                                                               FROM hitler
-                                                               WHERE hitler.Room = {[gt.Room]}
-                                                                 AND hitler.Game = {[gt.Game]}
-                                                                 AND hitler.Place =
-                                                                       {[turn.Chancellor]});
-                                     case hitler_o of
-                                         None   => return {}
-                                       | Some _ => fascists_win gt);
-                                case turn.PresDisc of
-                                    0 => if action_not_overdue gt.PresDisTime
-                                         then return {}
-                                         else punish_president gt
-                                  | _ =>
-                                    veto_o <- oneOrNoRows1 (SELECT *
-                                                            FROM veto
-                                                            WHERE veto.Room = {[gt.Room]}
-                                                              AND veto.Game = {[gt.Game]}
-                                                              AND veto.Turn = {[turn.Turn]});
-                                    case veto_o of
-                                        Some _ => enact_veto gt
-                                      | None =>
-                                        case turn.ChanEnac of
-                                            0 => if action_not_overdue gt.ChanEnaTime
-                                                 then return {}
-                                                 else punish_chancellor gt
-                                          | p => enact_policy gt
-                        end
+                                      FROM vote
+                                      WHERE vote.Room = {[gt.Room]}
+                                        AND vote.Game = {[gt.Game]}
+                                        AND vote.Turn = {[turn.Turn]});
+                    let val yes = List.filter (fn v => v.Vote = Some True) votes
+                        val no = List.filter (fn v => v.Vote = Some False) votes
+                    in if List.length (List.append yes no) <> List.length players
+                       then if action_not_overdue gt.GovVoteTime
+                            then return {}
+                            else punish_non_voters gt
+                       else
+                           if List.length no >= List.length yes
+                           then vote_failed gt
+                           else (* New govt *)
+                               (if turn.FascistPolicies <= 3
+                                then return {}
+                                else
+                                    hitler_o <- oneOrNoRows1 (SELECT *
+                                                              FROM hitler
+                                                              WHERE hitler.Room = {[gt.Room]}
+                                                                AND hitler.Game = {[gt.Game]}
+                                                                AND hitler.Place =
+                                                                {[turn.Chancellor]});
+                                    case hitler_o of
+                                        None   => return {}
+                                      | Some _ => fascists_win gt);
+                               case turn.PresDisc of
+                                   0 => if action_not_overdue gt.PresDisTime
+                                        then return {}
+                                        else punish_president gt
+                                 | _ =>
+                                   veto_o <- oneOrNoRows1 (SELECT *
+                                                           FROM veto
+                                                           WHERE veto.Room = {[gt.Room]}
+                                                             AND veto.Game = {[gt.Game]}
+                                                             AND veto.Turn = {[turn.Turn]});
+                                   case veto_o of
+                                       Some _ => enact_veto gt
+                                     | None =>
+                                       case turn.ChanEnac of
+                                           0 => if action_not_overdue gt.ChanEnaTime
+                                                then return {}
+                                                else punish_chancellor gt
+                                         | p => enact_policy gt
+                    end
     end
 
 task periodic 1 = (* Loop for active games. *)

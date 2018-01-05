@@ -1,20 +1,21 @@
 open Types
 
 datatype in_game
-  =      VoterAction of vote
+  =      VoterAction of option bool
   |  PresidentAction of president
   | ChancellorAction of chancellor
   |       ChatAction of chat_contents
 
-and vote
-  = Ya
-  | Nein
-  | UnVote
-
 and president
-  = ChooseChancellor       of int
-  | PresidentDiscardCard   of int
-  | InvestigateLoyaltyAct  of int
+  = StandardAction     of standard_action
+  | ExecutiveActionMsg of executive_action
+
+and standard_action
+  = ChooseChancellor     of int
+  | PresidentDiscardCard of int
+
+and executive_action
+  = InvestigateLoyaltyAct  of int
   | CallSpecialElectionAct of int
   | ExecutePlayer          of int
   | PresidentVeto
@@ -68,6 +69,7 @@ type private_game_state
   = { PublicGameState   : public_game_state
     , GameRole          : game_role
     , KnownAffiliations : list { Player : int, Side : side }
+    , Top3CardsInDraw   : list { Turn : int, Cards : bool * bool * bool }
     }
 
 datatype turn_role = Voter | President | Chancellor
