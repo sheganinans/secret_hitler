@@ -618,22 +618,40 @@ fun update_last_action (gt : game_table) =
          WHERE Room = {[gt.Room]}
            AND Game = {[gt.Game]})
 
+fun update_vote (room_id : int) (a : Protocol.vote) : transaction {} =
+    (_, _, _, _, ot, tt) <- player_in_game_exn room_id;
+    case a of
+        UnVote => dml (DELETE FROM vote_on_govt
+                              WHERE Room = {[tt.Room]}
+                                AND Game = {[tt.Game]}
+                                AND Turn = {[tt.Turn]})
+      | _ => let val vote = if a = Ya then True else False
+             in  vote_o <- oneOrNoRows1 (SELECT *
+                                         FROM vote_on_govt
+                                         WHERE vote_on_govt.Room  = {[tt.Room]}
+                                           AND vote_on_govt.Game  = {[tt.Game]}
+                                           AND vote_on_govt.Place = {[ot.Place]});
+                 case vote_o of
+                     None =>
+                     dml (INSERT INTO vote_on_govt (Room, Game, Turn, Place, Vote)
+                          VALUES ( {[tt.Room]}
+                                 , {[tt.Game]}
+                                 , {[tt.Turn]}
+                                 , {[ot.Place]}
+                                 , {[vote]} ))
+                   | Some _ =>
+                     dml (UPDATE vote_on_govt
+                          SET Vote = {[vote]}
+                          WHERE Room  = {[tt.Room]}
+                            AND Game  = {[tt.Game]}
+                            AND Turn  = {[tt.Turn]}
+                            AND Place = {[ot.Place]})
+             end
 
 fun player_action (room_id : int) (action : Protocol.in_game) : transaction {} =
     (pt, rt, gt, pct, ot, tt) <- player_in_game_exn room_id;
     case action of
-      VoterAction a =>
-      (case a of
-           UnVote => dml (DELETE FROM vote_on_govt
-                                 WHERE Room = {[tt.Room]}
-                                   AND Game = {[tt.Game]}
-                                   AND Turn = {[tt.Turn]})
-         | _ => dml (INSERT INTO vote_on_govt (Room, Game, Turn, Place, Vote)
-                                 VALUES ( {[tt.Room]}
-                                        , {[tt.Game]}
-                                        , {[tt.Turn]}
-                                        , {[ot.Place]}
-                                        , {[if a = Ya then True else False]} )))
+      VoterAction a => update_vote room_id a
     | PresidentAction a =>
       (case a of
            ChooseChancellor _ => return {}
