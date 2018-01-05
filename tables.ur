@@ -40,26 +40,20 @@ table room_player :
     , CONSTRAINT  SetByExists FOREIGN KEY SetBy  REFERENCES player (Player)
 
 table mod :
-      room_player_relation_t
-       CONSTRAINT IsRoomPlayerRelation
-       FOREIGN KEY (Room, Player)
-       REFERENCES room_player (Room, Player)
-
-table ban :
-      room_player_relation_t
-       CONSTRAINT IsRoomPlayerRelation
-       FOREIGN KEY (Room, Player)
-       REFERENCES room_player (Room, Player)
+      room_player_relation_t PRIMARY KEY (Room, Player)
+    , CONSTRAINT IsRoomPlayerRelation
+      FOREIGN KEY (Room, Player)
+      REFERENCES room_player (Room, Player)
 
 type kick_table_t = room_player_relation_t ++ [ Till = time ]
 
 type kick_table = $kick_table_t
 
 table kick :
-      kick_table_t
-       CONSTRAINT IsRoomPlayerRelation
-       FOREIGN KEY (Room, Player)
-       REFERENCES room_player (Room, Player)
+      kick_table_t PRIMARY KEY (Room, Player)
+    , CONSTRAINT IsRoomPlayerRelation
+      FOREIGN KEY (Room, Player)
+      REFERENCES room_player (Room, Player)
 
 type game_id_t = [ Game = int, Room = int ]
 
@@ -98,19 +92,22 @@ table player_in_game :
 
 table liberal :
       player_id_per_game_t
-          CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
-    , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
+          CONSTRAINT HasPlayerInGame
+          FOREIGN KEY (Room, Game, Player)
+          REFERENCES player_in_game (Room, Game, Player)
 
 table fascist :
       player_id_per_game_t
-          CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
-    , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
+          CONSTRAINT HasPlayerInGame
+          FOREIGN KEY (Room, Game, Player)
+          REFERENCES player_in_game (Room, Game, Player)
 
 table hitler :
       player_id_per_game_t
-          CONSTRAINT UniqueHilterPerGame UNIQUE (Room, Game, Player)
-    , CONSTRAINT HavePlayer FOREIGN KEY Player REFERENCES player (Player)
-    , CONSTRAINT HaveGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
+      CONSTRAINT UniqueHilterPerGame UNIQUE (Room, Game, Player)
+    , CONSTRAINT HasPlayerInGame
+      FOREIGN KEY (Room, Game, Player)
+      REFERENCES player_in_game (Room, Game, Player)
 
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
@@ -153,15 +150,15 @@ table turn :
     , CONSTRAINT LibPolGTE0 CHECK LiberalPolicies >= 0
     , CONSTRAINT FasPolGTE0 CHECK FascistPolicies >= 0
     , CONSTRAINT LiberalsUnchanging
-                 CHECK LiberalsInDraw
-                     + LiberalsInDisc
-                     + LiberalPolicies
-                     = {[number_of_liberal_policies]}
+      CHECK LiberalsInDraw
+          + LiberalsInDisc
+          + LiberalPolicies
+          = {[number_of_liberal_policies]}
     , CONSTRAINT FascistsUnchanging
-                  CHECK FascistsInDraw
-                      + FascistsInDisc
-                      + FascistPolicies
-                      = {[number_of_fascist_policies]}
+      CHECK FascistsInDraw
+          + FascistsInDisc
+          + FascistPolicies
+          = {[number_of_fascist_policies]}
 
 type vote_on_govt_table_t = turn_id_t ++ [ Player = int, Vote = bool ]
 
@@ -194,15 +191,72 @@ table veto :
       veto_table_t
       CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
 
-type chat_table_t = game_id_t ++ chat_contents_t
+type chat_id_t = [ Chat = int ]
+
+table chat : chat_id_t PRIMARY KEY Chat
+
+type chat_table_t = chat_id_t ++ [ Player = int, Time = time, Text = string ]
 
 type chat_table = $chat_table_t
 
-table chat :
-      chat_table_t PRIMARY KEY (Room, Game, Player, When)
+type direct_chat_table_t = chat_table_t ++ [ Recipient = int ]
+
+table direct_chat :
+      direct_chat_table_t PRIMARY KEY Chat
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+    , CONSTRAINT RecipientIsPlayer FOREIGN KEY Recipient REFERENCES player (Player)
+
+type chat_player_t = [ Chat = int, Player = int ]
+
+table group_chatters :
+      chat_player_t PRIMARY KEY (Chat, Player)
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+
+table group_chat :
+      chat_table_t PRIMARY KEY Chat
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT InGroup FOREIGN KEY (Chat, Player) REFERENCES group_chatters (Chat, Player)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+
+type room_chat_table_t = chat_table_t ++ [ Room = int ]
+
+type room_chat_table = $room_chat_table_t
+
+table room_chat :
+      room_chat_table_t PRIMARY KEY Chat
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+    , CONSTRAINT InRoom FOREIGN KEY (Room, Player) REFERENCES room_player (Room, Player)
+
+table mod_chat :
+      room_chat_table_t PRIMARY KEY Chat
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+    , CONSTRAINT IsMod FOREIGN KEY (Room, Player) REFERENCES mod (Room, Player)
+
+type kicked_chat_table_t = room_chat_table_t ++ [ Kicked = int ]
+
+type kicked_chat_table = $kicked_chat_table_t
+
+table kicked_chat :
+      kicked_chat_table_t PRIMARY KEY Chat
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+    , CONSTRAINT KickedIsPlayer FOREIGN KEY Kicked REFERENCES player (Player)
+    , CONSTRAINT AboutKicked FOREIGN KEY (Room, Kicked) REFERENCES kick (Room, Player)
+
+type game_chat_table_t = room_chat_table_t ++ [ Game = int ]
+
+table game_chat :
+      game_chat_table_t PRIMARY KEY Chat
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
     , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
-    , CONSTRAINT HasPlayer FOREIGN KEY (Room, Game, Player)
-                 REFERENCES player_in_game (Room, Game, Player)
 
 fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction {Player : int} =
     oneRow1 (SELECT player_in_game.Player

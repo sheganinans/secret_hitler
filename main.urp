@@ -25,7 +25,6 @@ utils
 types
 protocol
 tables
-server_responses
 instances
 error_page
 head

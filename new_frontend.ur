@@ -293,8 +293,11 @@ and join_game (room_id : int) : transaction page =
                     </table></form></body></xml>
     end
 
+and chat (room_id : int) (game_id : int) : transaction xbody =
+    return <xml></xml>
+
 and view_room (room_id : int) : transaction page =
-    (pt, rt) <- only_if_player_not_banned_or_kicked_exn room_id;
+    (pt, rt) <- only_if_player_not_kicked_exn room_id;
     rp_o <- oneOrNoRows1 (SELECT *
                           FROM room_player
                           WHERE room_player.Player = {[pt.Player]}
@@ -505,29 +508,22 @@ and only_if_owner_mod_exn (room_id : int) : transaction (player_table * room_tab
     then return (pt, rt)
     else error <xml>{main_menu_body {}}</xml>
 
-and only_if_player_not_banned_or_kicked_exn (room_id : int)
+and only_if_player_not_kicked_exn (room_id : int)
     : transaction (player_table * room_table) =
     pt <- check_role Player;
     rt <- room_exists_exn room_id;
-    is_banned <- oneOrNoRows1 (SELECT *
-                               FROM ban
-                               WHERE ban.Player = {[pt.Player]}
-                                 AND ban.Room   = {[rt.Room]});
-    case is_banned of
+    is_kicked <- oneOrNoRows1 (SELECT *
+                               FROM kick
+                               WHERE kick.Player = {[pt.Player]}
+                                 AND kick.Room = {[rt.Room]});
+    case is_kicked of
         Some _ => error <xml>{banned_body rt}</xml>
-      | None   =>
-        is_kicked <- oneOrNoRows1 (SELECT *
-                                   FROM kick
-                                   WHERE kick.Player = {[pt.Player]}
-                                     AND kick.Room = {[rt.Room]});
-        case is_kicked of
-            Some _ => error <xml>{banned_body rt}</xml>
-          | None => return (pt, rt)
+      | None => return (pt, rt)
 
 and if_player_in_good_standing (room_id : int)
                                (page_f : player_table * room_table -> transaction page)
     : transaction page =
-    (pt, rt) <- only_if_player_not_banned_or_kicked_exn room_id;
+    (pt, rt) <- only_if_player_not_kicked_exn room_id;
     rp_o <- oneOrNoRows1 (SELECT *
                           FROM room_player
                           WHERE room_player.Player = {[pt.Player]}
@@ -617,15 +613,8 @@ fun punish_non_voters (gt : game_table) : transaction {} =
               player_list)
 
 
-fun player_chans_in_game (gt : game_table)
-    : transaction (list { Chan : channel in_game_response }) =
-    queryL1 (SELECT player_in_game.Chan
-             FROM player_in_game
-             WHERE player_in_game.Room = {[gt.Room]}
-               AND player_in_game.Game = {[gt.Game]})
-
 fun vote_failed (gt : game_table) : transaction {} =
-    players_chans <- player_chans_in_game gt;
+    players_chans <- players_in_game gt;
     turn <- current_turn_state gt;
     let val state = if turn.RejectCount > 3 then InChaos else Failed
     in  (case state of
