@@ -59,18 +59,18 @@ and submit_login (login_form : player_name_and_pass) : transaction page =
                  main_menu {}
     end
 
-and ban_player (room_id : int) : transaction page = return <xml></xml>
+and kick_player (room_id : int) : transaction page = return <xml></xml>
 
-and banned_body (rt : room_table) : xbody =
+and kicked_body (rt : room_table) : xbody =
     <xml><table>
-      <tr><th>You have been banned from room: {[rt.Nam]}</th></tr>
+      <tr><th>You have been kicked from room: {[rt.Nam]}</th></tr>
       <tr>Appeal system coming soon!</tr>
       <tr><td><a link={main_menu {}}>Main Menu</a></td></tr>
     </table></xml>
 
-and banned (room_id : int) : transaction page =
+and kicked (room_id : int) : transaction page =
     (_, rt) <- player_in_room_exn room_id;
-    return <xml><body>{banned_body rt}</body></xml>
+    return <xml><body>{kicked_body rt}</body></xml>
 
 and main_menu {} : transaction page =
     pt <- check_role Player;
@@ -525,7 +525,7 @@ and only_if_player_not_kicked_exn (room_id : int)
                                WHERE kick.Player = {[pt.Player]}
                                  AND kick.Room = {[rt.Room]});
     case is_kicked of
-        Some _ => error <xml>{banned_body rt}</xml>
+        Some _ => error <xml>{kicked_body rt}</xml>
       | None => return (pt, rt)
 
 and if_player_in_good_standing (room_id : int)
@@ -658,14 +658,14 @@ fun enact_policy (gt : game_table) : transaction {} =
 
     in  (* Enacting a policy may change the number of fascist policies. *)
         turn <- current_turn_state gt;
-        (case turn.FascistPolicies of
+        gt |> (case turn.FascistPolicies of
              0 => fn _ => return {}
            | 1 => investigate_loyalty
            | 2 => call_special_election
            | 3 => policy_peek
            | 4 => execution
            | 5 => veto_power
-           | _ => fascists_win) gt
+           | _ => fascists_win)
     end
 
 fun game_loop (gt : game_table) =

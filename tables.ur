@@ -109,6 +109,16 @@ table hitler :
       FOREIGN KEY (Room, Game, InGameId)
       REFERENCES player_in_game (Room, Game, InGameId)
 
+type ordering_table_t = game_id_t ++ [ InGameId = int, Place = int ]
+
+type ordering_table = $ordering_table_t
+
+table ordering :
+      ordering_table_t CONSTRAINT UniqueOrdering UNIQUE (Room, Game, InGameId, Place)
+    , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
+    , CONSTRAINT InGame FOREIGN KEY (Room, Game, InGameId)
+                 REFERENCES player_in_game (Room, Game, InGameId)
+
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
 type govt_state_t
