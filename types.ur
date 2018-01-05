@@ -37,8 +37,6 @@ datatype step
   | LegislativeSession of legislative_step
   | ExecutiveAction    of executive_action
 
-(* Game state types *)
-
 type player =
      { Id   : int
      , Nam  : string
@@ -52,7 +50,23 @@ type game =
      , Step     : step
      , AltRules : bool }
 
-datatype action = NewGame
+(* Table Types *)
+
+type rule_set_t
+  = [ TimedGame   = bool
+    , KillPlayer  = bool
+    , ChanNomTime = float
+    , GovVoteTime = float
+    , PresDisTime = float
+    , ChanEnaTime = float
+    , ExecActTime = float
+    ]
+
+type rule_set = $rule_set_t
+
+type chat_contents_t = [ Player = int, When = time, Text = string ]
+
+type chat_contents = $chat_contents_t
 
 (* Auth Types *)
 

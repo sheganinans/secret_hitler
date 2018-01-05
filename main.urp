@@ -23,8 +23,9 @@ bootstrap/bootstrap3
 consts
 utils
 types
-tables
 protocol
+tables
+server_responses
 instances
 error_page
 head

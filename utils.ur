@@ -1,3 +1,6 @@
+fun mapM_ [a] [b] (f : a -> transaction b) (x : list a) : transaction {} =
+    _ <- List.mapM f x; return {}
+
 fun fold_css (l : list css_class) : css_class = List.foldr (fn c s => classes c s) null l
 
 fun shuffle [a] (deck : list a) : transaction (list a) =

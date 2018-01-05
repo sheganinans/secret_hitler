@@ -1,8 +1,7 @@
 open Auth
+open Protocol
 open Tables
-
-fun mapM_ [a] [b] (f : a -> transaction b) (x : list a) : transaction {} =
-    _ <- List.mapM f x; return {}
+open Utils
 
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
@@ -274,25 +273,28 @@ and join_game (room_id : int) : transaction page =
                        , Client
                        , Chan
                        , Watching
-                       , PlayerId )
+                       , InGameId )
                      VALUES
                        ( {[rt.CurrentGame]}
                        , {[rt.Room]}
                        , {[pt.Player]}
                        , {[me]}
                        , {[chan]}
-                       , {[not playing.Playing]}
+                       , {[if rt.InGame then True else not playing.Playing]}
                        , NULL )));
             view_room room_id
 
-    in  return <xml><body><form><table>
-          <tr><th>Playing?</th><td><checkbox{#Playing}/></td></tr>
-            <tr><submit action={submit_join_game room_id}/></tr>
-        </table></form></body></xml>
+    in  (pt, rt) <- player_in_room_exn room_id;
+        if rt.InGame
+        then submit_join_game room_id {Playing = False}
+        else return <xml><body><form><table>
+                      <tr><th>Playing?</th><td><checkbox{#Playing}/></td></tr>
+                      <tr><submit action={submit_join_game room_id}/></tr>
+                    </table></form></body></xml>
     end
 
 and view_room (room_id : int) : transaction page =
-    (pt, rt) <- only_if_player_not_banned_exn room_id;
+    (pt, rt) <- only_if_player_not_banned_or_kicked_exn room_id;
     rp_o <- oneOrNoRows1 (SELECT *
                           FROM room_player
                           WHERE room_player.Player = {[pt.Player]}
@@ -326,7 +328,7 @@ and start_game (room_id : int) : transaction page =
                               AND player_in_game.Room = {[rt.Room]});
     players <- Utils.shuffle (List.filter (fn p => not p.Watching) player_list);
     let val players_l = List.length players
-        val get_pid = get_player_from_player_id rt
+        val get_pid = get_player_from_in_game_id rt
     in  (if players_l < 5 || players_l > 10
          then return {}
          else case List.find (fn (k,_) => k = players_l) player_numbers_table of
@@ -334,7 +336,7 @@ and start_game (room_id : int) : transaction page =
                 | Some (_, lf) =>
                   mapM_ (fn (i,p) =>
                             dml (UPDATE player_in_game
-                                 SET PlayerId = {[Some i]}
+                                 SET InGameId = {[Some i]}
                                  WHERE Room = {[rt.Room]}
                                    AND Game = {[rt.CurrentGame]}
                                    AND Player = {[p.Player]} ))
@@ -372,6 +374,7 @@ and start_game (room_id : int) : transaction page =
                          , NextPres
                          , Chancellor
                          , RejectCount
+                         , VoteDone
                          , LiberalsInDraw
                          , FascistsInDraw
                          , LiberalsInDisc
@@ -391,11 +394,12 @@ and start_game (room_id : int) : transaction page =
                          , {[nextPres.Player]}
                          , NULL
                          , 0
-                         , 3 (* TODO replace *)
-                         , 3
+                         , FALSE
+                         , {[number_of_liberal_policies]}
+                         , {[number_of_fascist_policies]}
                          , 0
                          , 0
-                         , {[True]}
+                         , {[True]} (* TODO *)
                          , {[True]}
                          , {[True]}
                          , 0
@@ -412,12 +416,12 @@ and start_game (room_id : int) : transaction page =
     end
 
 and get_all_un_and_id_in_room (room_id : int) : transaction (list player_id_and_username) =
-    (pt, rt) <- player_in_room_exn room_id;
+    _ <- player_in_room_exn room_id;
     queryL1 (SELECT player.Player, player.Username
              FROM (room_player
                  INNER JOIN player
                  ON room_player.Player = player.Player)
-             WHERE room_player.Room = {[rt.Room]})
+             WHERE room_player.Room = {[room_id]})
 
 and new_mod {} : transaction page =
     let fun submit_new_mod (room_id : int) (player_id : int) {} =
@@ -447,6 +451,8 @@ and new_mod {} : transaction page =
         </body></xml>
     end
 
+and rem_mod {} : transaction page = return <xml></xml>
+
 and check_role (role : role) : transaction player_table =
     check <- Auth.check_login role;
     case check of
@@ -470,6 +476,25 @@ and player_in_room_exn (room_id : int) : transaction (player_table * room_table)
         None => error <xml>{main_menu_body ()}</xml>
       | Some _ => return (pt, rt)
 
+and player_in_game_exn (room_id : int)
+    : transaction (player_table * room_table * game_table * turn_table) =
+    (pt, rt) <- player_in_room_exn room_id;
+    gt_o <- oneOrNoRows1 (SELECT *
+                          FROM game
+                          WHERE game.Room = {[rt.Room]}
+                            AND game.Game = {[rt.CurrentGame]});
+    case gt_o of
+        None => error <xml>{main_menu_body ()}</xml>
+      | Some gt =>
+        tt_o <- oneOrNoRows1 (SELECT *
+                              FROM turn
+                              WHERE turn.Room = {[rt.Room]}
+                                AND turn.Game = {[rt.CurrentGame]}
+                                AND turn.Turn = {[gt.CurrentTurn]});
+        case tt_o of
+            None => error <xml>{main_menu_body ()}</xml>
+          | Some tt => return (pt, rt, gt, tt)
+
 and only_if_owner_mod_exn (room_id : int) : transaction (player_table * room_table) =
     (pt, rt) <- player_in_room_exn room_id;
     m <- oneOrNoRows1 (SELECT *
@@ -480,7 +505,8 @@ and only_if_owner_mod_exn (room_id : int) : transaction (player_table * room_tab
     then return (pt, rt)
     else error <xml>{main_menu_body {}}</xml>
 
-and only_if_player_not_banned_exn (room_id : int) : transaction (player_table * room_table) =
+and only_if_player_not_banned_or_kicked_exn (room_id : int)
+    : transaction (player_table * room_table) =
     pt <- check_role Player;
     rt <- room_exists_exn room_id;
     is_banned <- oneOrNoRows1 (SELECT *
@@ -489,12 +515,19 @@ and only_if_player_not_banned_exn (room_id : int) : transaction (player_table * 
                                  AND ban.Room   = {[rt.Room]});
     case is_banned of
         Some _ => error <xml>{banned_body rt}</xml>
-      | None   => return (pt, rt)
+      | None   =>
+        is_kicked <- oneOrNoRows1 (SELECT *
+                                   FROM kick
+                                   WHERE kick.Player = {[pt.Player]}
+                                     AND kick.Room = {[rt.Room]});
+        case is_kicked of
+            Some _ => error <xml>{banned_body rt}</xml>
+          | None => return (pt, rt)
 
 and if_player_in_good_standing (room_id : int)
                                (page_f : player_table * room_table -> transaction page)
     : transaction page =
-    (pt, rt) <- only_if_player_not_banned_exn room_id;
+    (pt, rt) <- only_if_player_not_banned_or_kicked_exn room_id;
     rp_o <- oneOrNoRows1 (SELECT *
                           FROM room_player
                           WHERE room_player.Player = {[pt.Player]}
@@ -534,16 +567,23 @@ fun update_last_action (gt : game_table) =
            AND Room = {[gt.Room]})
 
 
+fun player_action (room_id : int) (action : Protocol.in_game) : transaction {} =
+    (pt, rt, gt, tt) <- player_in_game_exn room_id;
+    case action of
+      VoterAction      _ => return {}
+    | PresidentAction  _ => return {}
+    | ChancellorAction _ => return {}
+
 fun skip_turn (gt : game_table) : transaction {} = return {}
 
-fun enact_punishment (gt : game_table)
-                     (kill_f : turn_table -> transaction {}) : transaction {} =
+fun enact_skip_turn_or_kill (gt : game_table)
+                            (kill_f : turn_table -> transaction {}) : transaction {} =
     if gt.KillPlayer
     then turn <- current_turn_state gt; kill_f turn
     else skip_turn gt
 
 fun punish_president (gt : game_table) : transaction {} =
-    enact_punishment gt (fn turn =>
+    enact_skip_turn_or_kill gt (fn turn =>
         dml (INSERT INTO dead_player (Game, Room, Turn, Target)
              VALUES ( {[turn.Game]}
                     , {[turn.Room]}
@@ -551,7 +591,7 @@ fun punish_president (gt : game_table) : transaction {} =
                     , {[turn.President]} )))
 
 fun punish_chancellor (gt : game_table) : transaction {} =
-    enact_punishment gt (fn turn =>
+    enact_skip_turn_or_kill gt (fn turn =>
         dml (INSERT INTO dead_player (Game, Room, Turn, Target)
              VALUES ( {[turn.Game]}
                     , {[turn.Room]}
@@ -559,24 +599,41 @@ fun punish_chancellor (gt : game_table) : transaction {} =
                     , {[Option.unsafeGet turn.Chancellor]} )))
 
 fun punish_non_voters (gt : game_table) : transaction {} =
-    enact_punishment gt (fn turn =>
-        player_list <- queryL1 (SELECT player_in_game.PlayerId
+    enact_skip_turn_or_kill gt (fn turn =>
+        player_list <- queryL1 (SELECT player_in_game.InGameId
                                 FROM (player_in_game
                                     LEFT JOIN vote_on_govt
-                                    ON  vote_on_govt.Game   = player_in_game.Game
-                                    AND vote_on_govt.Room   = player_in_game.Room
-                                    AND vote_on_govt.Player = player_in_game.Player)
-                                WHERE player_in_game.Watching = FALSE);
+                                    ON vote_on_govt.Player = player_in_game.Player)
+                                WHERE player_in_game.Watching = FALSE
+                                  AND player_in_game.Game = {[gt.Game]}
+                                  AND player_in_game.Room = {[gt.Room]});
+
         mapM_ (fn p =>
                   dml (INSERT INTO dead_player (Game, Room, Turn, Target)
                        VALUES ( {[turn.Game]}
                               , {[turn.Room]}
                               , {[turn.Turn]}
-                              , {[Option.unsafeGet p.PlayerId]} )))
+                              , {[Option.unsafeGet p.InGameId]} )))
               player_list)
 
-fun vote_failed (gt : game_table) : transaction {} = return {}
 
+fun player_chans_in_game (gt : game_table)
+    : transaction (list { Chan : channel in_game_response }) =
+    queryL1 (SELECT player_in_game.Chan
+             FROM player_in_game
+             WHERE player_in_game.Room = {[gt.Room]}
+               AND player_in_game.Game = {[gt.Game]})
+
+fun vote_failed (gt : game_table) : transaction {} =
+    players_chans <- player_chans_in_game gt;
+    turn <- current_turn_state gt;
+    let val state = if turn.RejectCount > 3 then InChaos else Failed
+    in  (case state of
+             Passed => return {(* Will never happen *)}
+           | InChaos => return {}
+           | Failed  => return {});
+        mapM_ (fn p => send p.Chan (GeneralRsp (NewGovt state))) players_chans
+    end
 
 fun liberals_win (gt : game_table) : transaction {} = return {}
 
@@ -643,7 +700,7 @@ fun game_loop (gt : game_table) =
                         in  if List.length nos >= List.length yes
                             then vote_failed gt
                             else (* New govt *)
-                                (if turn.FascistPolicies < 3
+                                (if turn.FascistPolicies <= 3
                                  then return {}
                                  else
                                      hitler_o <- oneOrNoRows1 (SELECT *
@@ -686,6 +743,11 @@ task periodic 1 = (* Loop for active games. *)
                               AND game.Game = room.CurrentGame));
         mapM_ game_loop games;
         return {}
+
+task periodic 60 = (* Kick removal loop *)
+     fn {} =>
+        now <- now;
+        dml (DELETE FROM kick WHERE Till < {[now]})
 
 fun admin_view {} : transaction page =
     let fun submit_admin_view {} : transaction page = return <xml></xml>
