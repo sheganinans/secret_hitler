@@ -1,12 +1,16 @@
 open Types
 
-(* In game actions *)
-datatype vote
+datatype in_game
+  =      VoterAction of vote
+  |  PresidentAction of president
+  | ChancellorAction of chancellor
+
+and vote
   = Ya
   | Nein
   | UnVote
 
-datatype president
+and president
   = ChooseChancellor     of int
   | PresidentDiscardCard of int
   | InvestigateLoyalty   of int
@@ -14,43 +18,28 @@ datatype president
   | ExecutePlayer        of int
   | PresidentVeto
 
-datatype chancellor
+and chancellor
   = EnactPolicy of int
   | ProposeVeto
 
-datatype in_game
-  =      VoterAction of vote
-  |  PresidentAction of president
-  | ChancellorAction of chancellor
 
 (* In room actions *)
-datatype request
-  = ReqInGame
-  | ReqRuleSet
-  | ReqPublicGameState
-
-datatype set
-  = SetNickName of string
-
-datatype mod
-  = Ban of int
-  | Kick of { Player : int, Till : time }
-
 datatype in_room
   = Req of request
   | Set of set
   | Mod of mod
 
+and request
+  = ReqInGame
+  | ReqRuleSet
+  | ReqPublicGameState
 
-(* Server response *)
-datatype president_response
-  = DiscardCard          of side * side * side
-  | LoyaltyInvestigation of { Player : int, Side : side }
-  | PolicyPeek           of side * side * side
-  | ExecutionPowerGranted
-  | VetoProposed
+and set
+  = SetNickName of string
 
-datatype chancellor_response = Policies of side * side
+and mod
+  = Ban of int
+  | Kick of { Player : int, Till : time }
 
 type public_game_state
   = { President       : int
@@ -68,8 +57,6 @@ type game_end_state
     , Start    : time
     }
 
-datatype new_govt = Passed | Failed | InChaos
-
 datatype game_role
   = Liberal
   | Hitler
@@ -85,7 +72,18 @@ type game_state_init
     , KnownAffiliations : list { Player : int, Side : side }
     }
 
-datatype general_response
+datatype turn_role = Voter | President | Chancellor
+
+datatype new_govt = Passed | Failed | InChaos
+
+(* Server response *)
+datatype in_game_response
+  = TurnRole      of turn_role
+  |    GeneralRsp of    general_response
+  |  PresidentRsp of  president_response
+  | ChancellorRsp of chancellor_response
+
+and general_response
   = Chat             of chat_contents
   | RuleSet          of rule_set
   | GameStateInit    of game_state_init
@@ -93,17 +91,16 @@ datatype general_response
   | ChancellorChosen of int
   | NewGovt          of new_govt
   | PolicyPassed     of side
-  | Punished
   | PlayersPunished  of list int
-  | Executed
   | PlayerExecuted   of int
-  | Veto
+  | VetoEnacted
   | GameEndState     of game_end_state
 
-datatype turn_role = Voter | President | Chancellor
+and president_response
+  = DiscardCard          of side * side * side
+  | LoyaltyInvestigation of { Player : int, Side : side }
+  | PolicyPeek           of side * side * side
+  | ExecutionPowerGranted
+  | VetoProposed
 
-datatype in_game_response
-  = TurnRole      of turn_role
-  |    GeneralRsp of    general_response
-  |  PresidentRsp of  president_response
-  | ChancellorRsp of chancellor_response
+and chancellor_response = Policies of side * side

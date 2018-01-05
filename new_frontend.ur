@@ -266,6 +266,10 @@ and join_game (room_id : int) : transaction page =
               | Some gt =>
                 me <- self;
                 chan <- channel;
+                num_in_game <- oneRowE1 (SELECT COUNT ( * )
+                                         FROM player_in_game
+                                         WHERE player_in_game.Room = {[rt.Room]}
+                                           AND player_in_game.Game = {[rt.CurrentGame]});
                 dml (INSERT INTO player_in_game
                        ( Game
                        , Room
@@ -281,7 +285,7 @@ and join_game (room_id : int) : transaction page =
                        , {[me]}
                        , {[chan]}
                        , {[if rt.InGame then True else not playing.Playing]}
-                       , NULL )));
+                       , {[num_in_game + 1]} )));
             view_room room_id
 
     in  (pt, rt) <- player_in_room_exn room_id;
@@ -329,43 +333,47 @@ and start_game (room_id : int) : transaction page =
                             FROM player_in_game
                             WHERE player_in_game.Game = {[rt.CurrentGame]}
                               AND player_in_game.Room = {[rt.Room]});
-    players <- Utils.shuffle (List.filter (fn p => not p.Watching) player_list);
-    let val players_l = List.length players
+    let val in_game_players = List.filter (fn p => not p.Watching) player_list
+        val in_game_players_l = List.length in_game_players
         val get_pid = get_player_from_in_game_id rt
-    in  (if players_l < 5 || players_l > 10
+    in  (if in_game_players_l < 5 || in_game_players_l > 10
          then return {}
-         else case List.find (fn (k,_) => k = players_l) player_numbers_table of
+         else case List.find (fn (k,_) => k = in_game_players_l) player_numbers_table of
                   None    => return {}
                 | Some (_, lf) =>
-                  mapM_ (fn (i,p) =>
-                            dml (UPDATE player_in_game
-                                 SET InGameId = {[Some i]}
-                                 WHERE Room = {[rt.Room]}
-                                   AND Game = {[rt.CurrentGame]}
-                                   AND Player = {[p.Player]} ))
-                        (List.mapi (fn i x => (i,x)) players);
+                  shuffled_players <- Utils.shuffle in_game_players;
 
-                  mapM_ (fn l =>
-                            dml (INSERT INTO liberal (Game, Room, Player)
+                  pids <- List.mapM (fn p =>
+                                        oneRow1 (SELECT *
+                                                 FROM player_in_game
+                                                 WHERE player_in_game.Room = {[rt.Room]}
+                                                   AND player_in_game.Game = {[rt.CurrentGame]}
+                                                   AND player_in_game.Player = {[p.Player]}))
+                                    shuffled_players;
+
+                  mapM_ (fn i =>
+                            dml (INSERT INTO liberal (Game, Room, InGameId)
                                  VALUES
                                    ( {[rt.CurrentGame]}
                                    , {[rt.Room]}
-                                   , {[l.Player]} )))
-                        (List.take lf.Liberals players);
+                                   , {[i.InGameId]} )))
+                        (List.take lf.Liberals pids);
 
-                  dml (INSERT INTO hitler (Game, Room, Player)
+                  dml (INSERT INTO hitler (Game, Room, InGameId)
                        VALUES
                          ( {[rt.CurrentGame]}
                          , {[rt.Room]}
-                         , {[(List.nth players lf.Liberals |> Option.unsafeGet).Player]} ));
+                         , {[List.nth pids lf.Liberals
+                               |> Option.unsafeGet
+                               |> fn p => p.InGameId]} ));
 
-                  mapM_ (fn f =>
-                            dml (INSERT INTO fascist (Game, Room, Player)
+                  mapM_ (fn i =>
+                            dml (INSERT INTO fascist (Game, Room, InGameId)
                                  VALUES
                                    ( {[rt.CurrentGame]}
                                    , {[rt.Room]}
-                                   , {[f.Player]} )))
-                        (List.drop (lf.Liberals + 1) players);
+                                   , {[i.InGameId]} )))
+                        (List.drop (lf.Liberals + 1) pids);
 
                   pres     <- get_pid 0;
                   nextPres <- get_pid 1;
@@ -578,13 +586,18 @@ fun enact_skip_turn_or_kill (gt : game_table)
     then turn <- current_turn_state gt; kill_f turn
     else skip_turn gt
 
+fun send_punished_list (gt : game_table) (l : list int) : transaction {} =
+    player_list <- players_in_game gt;
+    mapM_ (fn p => send p.Chan (GeneralRsp (PlayersPunished l))) player_list
+
 fun punish_president (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>
         dml (INSERT INTO dead_player (Game, Room, Turn, Target)
              VALUES ( {[turn.Game]}
                     , {[turn.Room]}
                     , {[turn.Turn]}
-                    , {[turn.President]} )))
+                    , {[turn.President]} ));
+        send_punished_list gt (turn.President :: []))
 
 fun punish_chancellor (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>
@@ -592,36 +605,37 @@ fun punish_chancellor (gt : game_table) : transaction {} =
              VALUES ( {[turn.Game]}
                     , {[turn.Room]}
                     , {[turn.Turn]}
-                    , {[Option.unsafeGet turn.Chancellor]} )))
+                    , {[Option.unsafeGet turn.Chancellor]} ));
+        send_punished_list gt ((Option.unsafeGet turn.Chancellor) :: []))
 
 fun punish_non_voters (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>
-        player_list <- queryL1 (SELECT player_in_game.InGameId
-                                FROM (player_in_game
-                                    LEFT JOIN vote_on_govt
-                                    ON vote_on_govt.Player = player_in_game.Player)
-                                WHERE player_in_game.Watching = FALSE
-                                  AND player_in_game.Game = {[gt.Game]}
-                                  AND player_in_game.Room = {[gt.Room]});
+        non_voters <- queryL1 (SELECT player_in_game.InGameId
+                               FROM (player_in_game
+                                   LEFT JOIN vote_on_govt
+                                   ON vote_on_govt.Player = player_in_game.Player)
+                               WHERE player_in_game.Watching = FALSE
+                                 AND player_in_game.Game = {[gt.Game]}
+                                 AND player_in_game.Room = {[gt.Room]});
 
         mapM_ (fn p =>
                   dml (INSERT INTO dead_player (Game, Room, Turn, Target)
                        VALUES ( {[turn.Game]}
                               , {[turn.Room]}
                               , {[turn.Turn]}
-                              , {[Option.unsafeGet p.InGameId]} )))
-              player_list)
-
+                              , {[p.InGameId]} )))
+              non_voters;
+        send_punished_list gt (List.mp (fn n => n.InGameId) non_voters))
 
 fun vote_failed (gt : game_table) : transaction {} =
-    players_chans <- players_in_game gt;
+    player_list <- players_in_game gt;
     turn <- current_turn_state gt;
     let val state = if turn.RejectCount > 3 then InChaos else Failed
     in  (case state of
              Passed => return {(* Will never happen *)}
            | InChaos => return {}
            | Failed  => return {});
-        mapM_ (fn p => send p.Chan (GeneralRsp (NewGovt state))) players_chans
+        mapM_ (fn p => send p.Chan (GeneralRsp (NewGovt state))) player_list
     end
 
 fun liberals_win (gt : game_table) : transaction {} = return {}
@@ -696,7 +710,7 @@ fun game_loop (gt : game_table) =
                                                                FROM hitler
                                                                WHERE hitler.Game = {[gt.Game]}
                                                                  AND hitler.Room = {[gt.Room]}
-                                                                 AND hitler.Player =
+                                                                 AND hitler.InGameId =
                                                                        {[Option.unsafeGet
                                                                            turn.Chancellor]});
                                      case hitler_o of

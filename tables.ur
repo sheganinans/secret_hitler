@@ -71,43 +71,43 @@ table game :
       game_table_t PRIMARY KEY (Room, Game)
     , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
 
-type player_id_per_game_t = [ Player = int ] ++ game_id_t
+type in_game_id_per_game_t = [ InGameId = int ] ++ game_id_t
 
-type player_id_per_game = $player_id_per_game_t
+type in_game_id_per_game = $in_game_id_per_game_t
 
 type player_connection_t
-  = player_id_per_game_t
-  ++ [ Client   = client
+  = in_game_id_per_game_t
+  ++ [ Player   = int
+     , Client   = client
      , Chan     = channel Protocol.in_game_response
      , Watching = bool
-     , InGameId = option int
      ]
 
 type player_connection = $player_connection_t
 
 table player_in_game :
-      player_connection_t PRIMARY KEY (Room, Game, Player)
+      player_connection_t PRIMARY KEY (Room, Game, InGameId)
     , CONSTRAINT HasGlobalId FOREIGN KEY Player REFERENCES player (Player)
     , CONSTRAINT HasRoom FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
 
 table liberal :
-      player_id_per_game_t
+      in_game_id_per_game_t
           CONSTRAINT HasPlayerInGame
-          FOREIGN KEY (Room, Game, Player)
-          REFERENCES player_in_game (Room, Game, Player)
+          FOREIGN KEY (Room, Game, InGameId)
+          REFERENCES player_in_game (Room, Game, InGameId)
 
 table fascist :
-      player_id_per_game_t
+      in_game_id_per_game_t
           CONSTRAINT HasPlayerInGame
-          FOREIGN KEY (Room, Game, Player)
-          REFERENCES player_in_game (Room, Game, Player)
+          FOREIGN KEY (Room, Game, InGameId)
+          REFERENCES player_in_game (Room, Game, InGameId)
 
 table hitler :
-      player_id_per_game_t
-      CONSTRAINT UniqueHilterPerGame UNIQUE (Room, Game, Player)
+      in_game_id_per_game_t
+      CONSTRAINT UniqueHilterPerGame UNIQUE (Room, Game, InGameId)
     , CONSTRAINT HasPlayerInGame
-      FOREIGN KEY (Room, Game, Player)
-      REFERENCES player_in_game (Room, Game, Player)
+      FOREIGN KEY (Room, Game, InGameId)
+      REFERENCES player_in_game (Room, Game, InGameId)
 
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
@@ -150,15 +150,9 @@ table turn :
     , CONSTRAINT LibPolGTE0 CHECK LiberalPolicies >= 0
     , CONSTRAINT FasPolGTE0 CHECK FascistPolicies >= 0
     , CONSTRAINT LiberalsUnchanging
-      CHECK LiberalsInDraw
-          + LiberalsInDisc
-          + LiberalPolicies
-          = {[number_of_liberal_policies]}
+          CHECK LiberalsInDraw + LiberalsInDisc + LiberalPolicies = {[number_of_liberal_policies]}
     , CONSTRAINT FascistsUnchanging
-      CHECK FascistsInDraw
-          + FascistsInDisc
-          + FascistPolicies
-          = {[number_of_fascist_policies]}
+          CHECK FascistsInDraw + FascistsInDisc + FascistPolicies = {[number_of_fascist_policies]}
 
 type vote_on_govt_table_t = turn_id_t ++ [ Player = int, Vote = bool ]
 
@@ -263,4 +257,4 @@ fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction {Play
              FROM player_in_game
              WHERE player_in_game.Room = {[rt.Room]}
                AND player_in_game.Game = {[rt.CurrentGame]}
-               AND player_in_game.InGameId = {[Some pid]})
+               AND player_in_game.InGameId = {[pid]})
