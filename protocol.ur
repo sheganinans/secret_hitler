@@ -42,10 +42,10 @@ and mod
   | Kick of { Player : int, Till : time }
 
 type public_game_state
-  = { President       : int
-    , Chancellor      : option int
-    , FascistPolicies : int
-    , LiberalPolicies : int
+  = { CurrentTurn :      govt_state
+    , GameHistory : list govt_state
+    , ChatHistory : list chat_contents
+    , Players     : list { Player : int, Username : string }
     }
 
 type game_end_state
@@ -63,11 +63,8 @@ datatype game_role
   | Fascist of { Hitler : int, Fascists : list int }
   | Watcher
 
-type game_state_init
-  = { PublicGameState   :      public_game_state
-    , History           : list public_game_state
-    , ChatHistory       : list chat_contents
-    , Players           : list { Player : int, Username : string }
+type private_game_state
+  = { PublicGameState   : public_game_state
     , GameRole          : game_role
     , KnownAffiliations : list { Player : int, Side : side }
     }
@@ -86,7 +83,7 @@ datatype in_game_response
 and general_response
   = Chat             of chat_contents
   | RuleSet          of rule_set
-  | GameStateInit    of game_state_init
+  | PublicGameState  of public_game_state
   | PresidentNow     of int
   | ChancellorChosen of int
   | NewGovt          of new_govt

@@ -64,6 +64,15 @@ type rule_set_t
 
 type rule_set = $rule_set_t
 
+type govt_state_t
+  = [ President       = int
+    , Chancellor      = int
+    , LiberalPolicies = int
+    , FascistPolicies = int
+    ]
+
+type govt_state = $govt_state_t
+
 type chat_contents_t = [ Player = int, When = time, Text = string ]
 
 type chat_contents = $chat_contents_t

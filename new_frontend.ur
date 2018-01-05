@@ -148,7 +148,7 @@ and new_game {} : transaction page =
                    , {[rule_set.PresDisTime]}
                    , {[rule_set.ChanEnaTime]}
                    , {[rule_set.ExecActTime]}
-                   , {[0]}
+                   , 0
                    , {[now]}
                    , {[now]}
                    , {[None]} )));
@@ -297,7 +297,7 @@ and join_game (room_id : int) : transaction page =
                     </table></form></body></xml>
     end
 
-and chat (room_id : int) (game_id : int) : transaction xbody =
+and chat (chat_id : int) : transaction xbody =
     return <xml></xml>
 
 and view_room (room_id : int) : transaction page =
@@ -309,6 +309,21 @@ and view_room (room_id : int) : transaction page =
     case rp_o of
         None   => join_room room_id
       | Some _ =>
+        (gs : source private_game_state)
+            <- source { PublicGameState =
+                        { CurrentTurn =
+                          { President       = 0
+                          , Chancellor      = 0
+                          , FascistPolicies = 0
+                          , LiberalPolicies = 0
+                          }
+                        , GameHistory     = []
+                        , ChatHistory = []
+                        , Players     = []
+                        }
+                      , GameRole          = Watcher
+                      , KnownAffiliations = []
+                      };
         let fun no_game_yet {} : transaction xbody = return <xml></xml>
 
             fun fascist_view {} : transaction xbody = return <xml></xml>
@@ -597,7 +612,139 @@ fun player_action (room_id : int) (action : Protocol.in_game) : transaction {} =
     | PresidentAction  _ => return {}
     | ChancellorAction _ => return {}
 
-fun skip_turn (gt : game_table) : transaction {} = return {}
+
+fun send_message_to_listeners (gt : game_table) (msg : in_game_response) : transaction {} =
+    player_list <- players_in_game gt;
+    mapM_ (fn p => send p.Chan msg) player_list
+
+fun repeat [a] (x : a) (i : int) : list a =
+    let fun go (acc : int) : list a =
+            if acc = 0
+            then []
+            else x :: go (acc - 1)
+    in go i
+    end
+
+fun generate_top_3_cards (libs : int) (fasc : int) : transaction (bool * bool * bool) =
+    r1 <- rand;
+    r2 <- rand;
+    r3 <- rand;
+    let fun delta_deck (b : bool) (libs : int) (fasc : int) : int * int =
+            if b
+            then (libs - 1, fasc    )
+            else (libs    , fasc - 1)
+        val fst = Basis.mod r1 (libs + fasc) < libs
+        val (libs, fasc) = delta_deck fst libs fasc
+        val snd = Basis.mod r2 (libs + fasc) < libs
+        val (libs, fasc) = delta_deck snd libs fasc
+        val trd = Basis.mod r3 (libs + fasc) < libs
+    in  return (fst, snd, trd)
+    end
+
+fun new_lib_fasc_ratio (f : int -> int -> int)
+                       ((c1, c2, c3) : bool * bool * bool)
+                       (lib : int)
+                       (fasc : int) : int * int =
+    let fun delta_ratio (lib : int) (fasc : int) (b : bool) : int * int =
+            if b then (f lib 1, fasc) else (lib, f fasc 1)
+        val (lib, fasc) = delta_ratio lib fasc c1
+        val (lib, fasc) = delta_ratio lib fasc c2
+    in delta_ratio lib fasc c3
+    end
+
+fun new_lib_fasc_draw_ratio (top_3 : bool * bool * bool)
+                            (lib : int)
+                            (fasc : int) : int * int =
+    new_lib_fasc_ratio plus top_3 lib fasc
+
+fun new_lib_fasc_disc_ratio (top_3 : bool * bool * bool)
+                            (lib : int)
+                            (fasc : int) : int * int =
+    new_lib_fasc_ratio minus top_3 lib fasc
+
+fun generate_next_turn_state (current_turn : turn_table)
+    : transaction { Fst : bool, Snd : bool, Trd : bool
+                  , LibDraw : int, FasDraw : int
+                  , LibDisc : int, FasDisc : int } =
+    if current_turn.LiberalsInDraw + current_turn.FascistsInDraw < 3
+    then ((fst, snd, trd) <- generate_top_3_cards
+                                 (current_turn.LiberalsInDraw + current_turn.LiberalsInDisc)
+                                 (current_turn.FascistsInDraw + current_turn.FascistsInDisc);
+          let val (lib_draw, fasc_draw) = new_lib_fasc_draw_ratio
+                                              (fst, snd, trd)
+                                              current_turn.LiberalsInDraw
+                                              current_turn.FascistsInDraw
+          in  return { Fst = fst, Snd = snd, Trd = trd
+                     , LibDraw = lib_draw, FasDraw = fasc_draw
+                     , LibDisc = 0, FasDisc = 0 }
+          end)
+    else ((fst, snd, trd) <- generate_top_3_cards current_turn.LiberalsInDraw
+                                                  current_turn.FascistsInDraw;
+          let val (lib_draw, fasc_draw) = new_lib_fasc_draw_ratio
+                                              (fst, snd, trd)
+                                              current_turn.LiberalsInDraw
+                                              current_turn.FascistsInDraw
+              val (lib_disc, fasc_disc) = new_lib_fasc_disc_ratio
+                                              (fst, snd, trd)
+                                              current_turn.LiberalsInDisc
+                                              current_turn.FascistsInDisc
+          in return { Fst = fst, Snd = snd, Trd = trd
+                    , LibDraw = lib_draw, FasDraw = fasc_draw
+                    , LibDisc = lib_disc, FasDisc = fasc_disc }
+          end)
+
+fun skip_turn (gt : game_table) : transaction {} =
+    (*send_message_to_listeners gt (GeneralRsp (NewGovt Failed));*)
+    current_turn <- current_turn_state gt;
+    next_turn_state <- generate_next_turn_state current_turn;
+    dml (INSERT INTO turn
+               ( Game
+               , Room
+               , Turn
+               , President
+               , NextPres
+               , Chancellor
+               , RejectCount
+               , ChancellorSelectionDone
+               , VoteDone
+               , DiscardDone
+               , EnactionDone
+               , ExecActionDone
+               , LiberalsInDraw
+               , FascistsInDraw
+               , LiberalsInDisc
+               , FascistsInDisc
+               , Fst
+               , Snd
+               , Trd
+               , PresDisc
+               , ChanEnac
+               , LiberalPolicies
+               , FascistPolicies )
+             VALUES
+               ( {[current_turn.Game]}
+               , {[current_turn.Room]}
+               , {[current_turn.Turn + 1]}
+               , {[current_turn.NextPres]}
+               , {[current_turn.NextPres + 1]} (* TODO add rollover and skipping dead *)
+               , 0
+               , {[current_turn.RejectCount + 1]}
+               , FALSE
+               , FALSE
+               , FALSE
+               , FALSE
+               , FALSE
+               , {[next_turn_state.LibDraw]}
+               , {[next_turn_state.FasDraw]}
+               , {[next_turn_state.LibDisc]}
+               , {[next_turn_state.LibDisc]}
+               , {[next_turn_state.Fst]}
+               , {[next_turn_state.Snd]}
+               , {[next_turn_state.Trd]}
+               , 0
+               , 0
+               , {[current_turn.LiberalPolicies]}
+               , {[current_turn.FascistPolicies]} ))
 
 fun enact_skip_turn_or_kill (gt : game_table)
                             (kill_f : turn_table -> transaction {}) : transaction {} =
@@ -606,8 +753,7 @@ fun enact_skip_turn_or_kill (gt : game_table)
     else skip_turn gt
 
 fun send_punished_list (gt : game_table) (l : list int) : transaction {} =
-    player_list <- players_in_game gt;
-    mapM_ (fn p => send p.Chan (GeneralRsp (PlayersPunished l))) player_list
+    send_message_to_listeners gt (GeneralRsp (PlayersPunished l))
 
 fun punish_president (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>

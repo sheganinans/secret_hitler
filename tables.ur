@@ -122,13 +122,6 @@ table in_game_ordering :
 
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
-type govt_state_t
-  = [ President   = int
-    , NextPres    = int
-    , Chancellor  = int
-    , RejectCount = int
-    ]
-
 type game_flow_t
   = [ ChancellorSelectionDone = bool
     ,                VoteDone = bool
@@ -146,13 +139,13 @@ type deck_state_t
     ]
 
 type game_state_t
-  = [ PresDisc        = int
-    , ChanEnac        = int
-    , LiberalPolicies = int
-    , FascistPolicies = int
+  = [ PresDisc    = int
+    , ChanEnac    = int
+    , NextPres    = int
+    , RejectCount = int
     ]
 
-type turn_table_t = turn_id_t ++ govt_state_t ++ game_flow_t ++ deck_state_t ++ game_state_t
+type turn_table_t = turn_id_t ++ game_flow_t ++ govt_state_t ++ deck_state_t ++ game_state_t
 
 type turn_table = $turn_table_t
 
@@ -166,10 +159,13 @@ table turn :
     , CONSTRAINT ChancellorSelectedNotDummy
                  CHECK IF ChancellorSelectionDone THEN Chancellor <> 0 ELSE TRUE
     , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
-    , CONSTRAINT       PresIsPlayer FOREIGN KEY President  REFERENCES player (Player)
-    , CONSTRAINT   NextPresIsPlayer FOREIGN KEY NextPres   REFERENCES player (Player)
-    , CONSTRAINT ChancellorIsPlayer FOREIGN KEY Chancellor REFERENCES player (Player)
-    , CONSTRAINT RejectCount CHECK RejectCount <= 3 AND RejectCount >= 0
+    , CONSTRAINT PresIsPlayer FOREIGN KEY (Room, Game, President)
+                 REFERENCES player_in_game (Room, Game, InGameId)
+    , CONSTRAINT NextPresIsPlayer FOREIGN KEY (Room, Game, NextPres)
+                 REFERENCES player_in_game (Room, Game, InGameId)
+    , CONSTRAINT ChancellorIsPlayer FOREIGN KEY (Room, Game, Chancellor)
+                 REFERENCES player_in_game (Room, Game, InGameId)
+    , CONSTRAINT RejectCount CHECK RejectCount >= 0 AND RejectCount <= 3
     , CONSTRAINT AllowedDisc CHECK PresDisc >= 0 AND PresDisc <= 3
     , CONSTRAINT AllowedEnac CHECK ChanEnac >= 0 AND ChanEnac <= 3
     , CONSTRAINT VoteBeforeDisc  CHECK IF DiscardDone THEN VoteDone ELSE TRUE
@@ -177,13 +173,25 @@ table turn :
     , CONSTRAINT DiscardBeforeEnaction CHECK IF EnactionDone THEN DiscardDone ELSE TRUE
     , CONSTRAINT EnactionNotDummy CHECK IF EnactionDone THEN ChanEnac <> 0 ELSE TRUE
     , CONSTRAINT ExecActionAfterEnac CHECK IF ExecActionDone THEN EnactionDone ELSE TRUE
-    , CONSTRAINT DrawDeckGTE3 CHECK LiberalsInDraw + FascistsInDraw >= 3
+    , CONSTRAINT DrawDeckGTE0 CHECK LiberalsInDraw + FascistsInDraw >= 0
     , CONSTRAINT LibPolGTE0AndLTE5 CHECK LiberalPolicies >= 0 AND LiberalPolicies <= 5
     , CONSTRAINT FasPolGTE0AndLTE5 CHECK FascistPolicies >= 0 AND FascistPolicies <= 6
     , CONSTRAINT LiberalsUnchanging
-          CHECK LiberalsInDraw + LiberalsInDisc + LiberalPolicies = {[number_of_liberal_policies]}
+          CHECK LiberalsInDraw
+              + LiberalsInDisc
+              + LiberalPolicies
+              + (IF Fst THEN 1 ELSE 0)
+              + (IF Snd THEN 1 ELSE 0)
+              + (IF Trd THEN 1 ELSE 0)
+              = {[number_of_liberal_policies]}
     , CONSTRAINT FascistsUnchanging
-          CHECK FascistsInDraw + FascistsInDisc + FascistPolicies = {[number_of_fascist_policies]}
+          CHECK FascistsInDraw
+              + FascistsInDisc
+              + FascistPolicies
+              + (IF NOT Fst THEN 1 ELSE 0)
+              + (IF NOT Snd THEN 1 ELSE 0)
+              + (IF NOT Trd THEN 1 ELSE 0)
+              = {[number_of_fascist_policies]}
 
 type vote_on_govt_table_t = turn_id_t ++ [ Player = int, Vote = bool ]
 
@@ -215,6 +223,7 @@ table veto :
 
 type chat_id_t = [ Chat = int ]
 
+sequence chat_seq
 table chat : chat_id_t PRIMARY KEY Chat
 
 type chat_table_t = chat_id_t ++ [ Player = int, Time = time, Text = string ]
@@ -277,7 +286,7 @@ table group_chat :
     , CONSTRAINT InGroup FOREIGN KEY (Chat, Player) REFERENCES group_chat_relation (Chat, Player)
     , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
 
-fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction {Player : int} =
+fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction { Player : int } =
     oneRow1 (SELECT player_in_game.Player
              FROM player_in_game
              WHERE player_in_game.Room = {[rt.Room]}
