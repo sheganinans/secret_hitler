@@ -109,12 +109,13 @@ table hitler :
       FOREIGN KEY (Room, Game, InGameId)
       REFERENCES player_in_game (Room, Game, InGameId)
 
-type ordering_table_t = game_id_t ++ [ InGameId = int, Place = int ]
+type in_game_ordering_table_t = game_id_t ++ [ InGameId = int, Place = int ]
 
-type ordering_table = $ordering_table_t
+type in_game_ordering_table = $in_game_ordering_table_t
 
-table ordering :
-      ordering_table_t CONSTRAINT UniqueOrdering UNIQUE (Room, Game, InGameId, Place)
+table in_game_ordering :
+      in_game_ordering_table_t CONSTRAINT UniqueOrderingPerGame
+                               UNIQUE (Room, Game, InGameId, Place)
     , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
     , CONSTRAINT InGame FOREIGN KEY (Room, Game, InGameId)
                  REFERENCES player_in_game (Room, Game, InGameId)
@@ -124,9 +125,16 @@ type turn_id_t = game_id_t ++ [ Turn = int ]
 type govt_state_t
   = [ President   = int
     , NextPres    = int
-    , Chancellor  = option int
+    , Chancellor  = int
     , RejectCount = int
-    , VoteDone    = bool
+    ]
+
+type game_flow_t
+  = [ ChancellorSelectionDone = bool
+    ,                VoteDone = bool
+    ,             DiscardDone = bool
+    ,            EnactionDone = bool
+    ,          ExecActionDone = bool
     ]
 
 type deck_state_t
@@ -135,30 +143,43 @@ type deck_state_t
     , Fst = bool
     , Snd = bool
     , Trd = bool
-    , PresDisc = int
-    , ChanEnac = int
     ]
 
 type game_state_t
-  = [ LiberalPolicies = int
+  = [ PresDisc        = int
+    , ChanEnac        = int
+    , LiberalPolicies = int
     , FascistPolicies = int
     ]
 
-type turn_table_t = turn_id_t ++ govt_state_t ++ deck_state_t ++ game_state_t
+type turn_table_t = turn_id_t ++ govt_state_t ++ game_flow_t ++ deck_state_t ++ game_state_t
 
 type turn_table = $turn_table_t
 
 table turn :
       turn_table_t PRIMARY KEY (Room, Game, Turn)
+    , CONSTRAINT UniquePresident  UNIQUE (Room, Game, Turn, President)
+    , CONSTRAINT UniqueNextPres   UNIQUE (Room, Game, Turn, NextPres)
+    , CONSTRAINT UniqueChancellor UNIQUE (Room, Game, Turn, Chancellor)
+    , CONSTRAINT     PresNotDummy CHECK President <> 0
+    , CONSTRAINT NextPresNotDummy CHECK  NextPres <> 0
+    , CONSTRAINT ChancellorSelectedNotDummy
+                 CHECK IF ChancellorSelectionDone THEN Chancellor <> 0 ELSE TRUE
     , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
     , CONSTRAINT       PresIsPlayer FOREIGN KEY President  REFERENCES player (Player)
     , CONSTRAINT   NextPresIsPlayer FOREIGN KEY NextPres   REFERENCES player (Player)
     , CONSTRAINT ChancellorIsPlayer FOREIGN KEY Chancellor REFERENCES player (Player)
-    , CONSTRAINT DrawDeckGTE3 CHECK LiberalsInDraw + FascistsInDraw >= 3
+    , CONSTRAINT RejectCount CHECK RejectCount <= 3 AND RejectCount >= 0
     , CONSTRAINT AllowedDisc CHECK PresDisc >= 0 AND PresDisc <= 3
     , CONSTRAINT AllowedEnac CHECK ChanEnac >= 0 AND ChanEnac <= 3
-    , CONSTRAINT LibPolGTE0 CHECK LiberalPolicies >= 0
-    , CONSTRAINT FasPolGTE0 CHECK FascistPolicies >= 0
+    , CONSTRAINT VoteBeforeDisc  CHECK IF DiscardDone THEN VoteDone ELSE TRUE
+    , CONSTRAINT DiscardNotDummy CHECK IF DiscardDone THEN PresDisc <> 0 ELSE TRUE
+    , CONSTRAINT DiscardBeforeEnaction CHECK IF EnactionDone THEN DiscardDone ELSE TRUE
+    , CONSTRAINT EnactionNotDummy CHECK IF EnactionDone THEN ChanEnac <> 0 ELSE TRUE
+    , CONSTRAINT ExecActionAfterEnac CHECK IF ExecActionDone THEN EnactionDone ELSE TRUE
+    , CONSTRAINT DrawDeckGTE3 CHECK LiberalsInDraw + FascistsInDraw >= 3
+    , CONSTRAINT LibPolGTE0AndLTE5 CHECK LiberalPolicies >= 0 AND LiberalPolicies <= 5
+    , CONSTRAINT FasPolGTE0AndLTE5 CHECK FascistPolicies >= 0 AND FascistPolicies <= 6
     , CONSTRAINT LiberalsUnchanging
           CHECK LiberalsInDraw + LiberalsInDisc + LiberalPolicies = {[number_of_liberal_policies]}
     , CONSTRAINT FascistsUnchanging
@@ -173,27 +194,24 @@ table vote_on_govt :
           CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
       , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
 
-type president_action_id_t = turn_id_t ++ [ Target = int ]
-
-type loyalty_investigation_table_t = president_action_id_t
+type president_action_table_t = turn_id_t ++ [ Target = int ]
 
 table loyalty_investigation :
-      loyalty_investigation_table_t
+      president_action_table_t
           CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
-      , CONSTRAINT HasPlayer FOREIGN KEY Target REFERENCES player (Player)
-
-type dead_player_table_t = president_action_id_t
+      , CONSTRAINT TargetIsPlayer FOREIGN KEY Target REFERENCES player (Player)
 
 table dead_player :
-      dead_player_table_t
-          CONSTRAINT DiedOnTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
-      , CONSTRAINT IsPlayer FOREIGN KEY Target REFERENCES player (Player)
+      president_action_table_t
+          CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
+      , CONSTRAINT TargetIsPlayer FOREIGN KEY Target REFERENCES player (Player)
 
-type veto_table_t = turn_id_t
+type veto_table_t = turn_id_t ++ [ President = int, Chancellor = int ]
 
 table veto :
       veto_table_t
       CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
+
 
 type chat_id_t = [ Chat = int ]
 
@@ -210,19 +228,6 @@ table direct_chat :
     , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
     , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
     , CONSTRAINT RecipientIsPlayer FOREIGN KEY Recipient REFERENCES player (Player)
-
-type chat_player_t = [ Chat = int, Player = int ]
-
-table group_chatters :
-      chat_player_t PRIMARY KEY (Chat, Player)
-    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
-    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
-
-table group_chat :
-      chat_table_t PRIMARY KEY Chat
-    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
-    , CONSTRAINT InGroup FOREIGN KEY (Chat, Player) REFERENCES group_chatters (Chat, Player)
-    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
 
 type room_chat_table_t = chat_table_t ++ [ Room = int ]
 
@@ -249,9 +254,7 @@ type kicked_chat_table = $kicked_chat_table_t
 table kicked_chat :
       kicked_chat_table_t PRIMARY KEY Chat
     , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
-    , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
     , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
-    , CONSTRAINT KickedIsPlayer FOREIGN KEY Kicked REFERENCES player (Player)
     , CONSTRAINT AboutKicked FOREIGN KEY (Room, Kicked) REFERENCES kick (Room, Player)
 
 type game_chat_table_t = room_chat_table_t ++ [ Game = int ]
@@ -259,8 +262,20 @@ type game_chat_table_t = room_chat_table_t ++ [ Game = int ]
 table game_chat :
       game_chat_table_t PRIMARY KEY Chat
     , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
-    , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
     , CONSTRAINT HasGame FOREIGN KEY (Room, Game) REFERENCES game (Room, Game)
+
+type chat_player_relation_t = [ Chat = int, Player = int ]
+
+table group_chat_relation :
+      chat_player_relation_t PRIMARY KEY (Chat, Player)
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+
+table group_chat :
+      chat_table_t PRIMARY KEY Chat
+    , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
+    , CONSTRAINT InGroup FOREIGN KEY (Chat, Player) REFERENCES group_chat_relation (Chat, Player)
+    , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
 
 fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction {Player : int} =
     oneRow1 (SELECT player_in_game.Player

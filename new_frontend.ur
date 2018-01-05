@@ -351,6 +351,17 @@ and start_game (room_id : int) : transaction page =
                                                    AND player_in_game.Player = {[p.Player]}))
                                     shuffled_players;
 
+                  shuffled_pids <- Utils.shuffle pids;
+
+                  mapM_ (fn (i,p) => dml (INSERT INTO in_game_ordering
+                                            (Room, Game, InGameId, Place)
+                                          VALUES
+                                            ( {[rt.Room]}
+                                            , {[rt.CurrentGame]}
+                                            , {[p.InGameId]}
+                                            , {[i]} )))
+                        (List.mapi (fn i p => (i+1,p)) shuffled_pids);
+
                   mapM_ (fn i =>
                             dml (INSERT INTO liberal (Game, Room, InGameId)
                                  VALUES
@@ -385,7 +396,11 @@ and start_game (room_id : int) : transaction page =
                          , NextPres
                          , Chancellor
                          , RejectCount
+                         , ChancellorSelectionDone
                          , VoteDone
+                         , DiscardDone
+                         , EnactionDone
+                         , ExecActionDone
                          , LiberalsInDraw
                          , FascistsInDraw
                          , LiberalsInDisc
@@ -403,8 +418,12 @@ and start_game (room_id : int) : transaction page =
                          , 1
                          , {[pres.Player]}
                          , {[nextPres.Player]}
-                         , NULL
                          , 0
+                         , 0
+                         , FALSE
+                         , FALSE
+                         , FALSE
+                         , FALSE
                          , FALSE
                          , {[number_of_liberal_policies]}
                          , {[number_of_fascist_policies]}
@@ -605,8 +624,8 @@ fun punish_chancellor (gt : game_table) : transaction {} =
              VALUES ( {[turn.Game]}
                     , {[turn.Room]}
                     , {[turn.Turn]}
-                    , {[Option.unsafeGet turn.Chancellor]} ));
-        send_punished_list gt ((Option.unsafeGet turn.Chancellor) :: []))
+                    , {[turn.Chancellor]} ));
+        send_punished_list gt (turn.Chancellor :: []))
 
 fun punish_non_voters (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn turn =>
@@ -682,11 +701,11 @@ fun game_loop (gt : game_table) =
                 6 => fascists_win gt
               | _ =>
                 case turn.Chancellor of
-                    None =>
+                    0 =>
                     if action_not_overdue gt.ChanNomTime
                     then return {}
                     else punish_president gt
-                  | Some _ =>
+                  | _ =>
                     players <- players_in_game gt;
                     votes <- queryL1 (SELECT *
                                       FROM vote_on_govt
@@ -711,8 +730,7 @@ fun game_loop (gt : game_table) =
                                                                WHERE hitler.Game = {[gt.Game]}
                                                                  AND hitler.Room = {[gt.Room]}
                                                                  AND hitler.InGameId =
-                                                                       {[Option.unsafeGet
-                                                                           turn.Chancellor]});
+                                                                       {[turn.Chancellor]});
                                      case hitler_o of
                                          None   => return {}
                                        | Some _ => fascists_win gt);
