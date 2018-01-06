@@ -15,40 +15,13 @@ val player_numbers_table : list (int * player_numbers_row) =
     (9 , { Liberals = 5, Fascists = 3 }) ::
     (10, { Liberals = 6, Fascists = 3 }) :: []
 
-datatype election_step
-  = PassThePresidentialCandidacy
-  | NominateAChancellor (* Check eligibility *)
-  | VoteOnTheGovernment (* Election Tracker *)
-  | NewGovernment       (* Check if chancelor is Hitler *)
-
-datatype legislative_step
-  = PresidentialDiscard
-  | ChancellorEnaction
-
-datatype executive_action
-  = InvestigateLoyalty
-  | CallSpecialElection
-  | PolicyPeek
-  | Execution
-  | Veto
-
 datatype step
-  = Election           of election_step
-  | LegislativeSession of legislative_step
-  | ExecutiveAction    of executive_action
-
-type player =
-     { Id   : int
-     , Nam  : string
-     , Dead : bool }
-
-type game =
-     { Hitler   :      player
-     , Liberals : list player
-     , Fascists : list player
-     , Game     : int
-     , Step     : step
-     , AltRules : bool }
+  = ChancellorSelectStep
+  | VoteStep
+  | HitlerCheckStep
+  | DiscardStep
+  | EnactStep
+  | ExecActionStep
 
 (* Table Types *)
 

@@ -29,6 +29,7 @@ instances
 error_page
 head
 auth
-gameplay
+player_action
+server_response
 new_frontend
 main

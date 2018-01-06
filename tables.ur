@@ -126,11 +126,12 @@ table hitler :
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
 type game_flow_t
-  = [   ChancSelDone = bool
-    ,       VoteDone = bool
-    ,    DiscardDone = bool
-    ,   EnactionDone = bool
-    , ExecActionDone = bool
+  = [    ChancSelDone = bool
+    ,        VoteDone = bool
+    , HitlerCheckDone = bool
+    ,     DiscardDone = bool
+    ,    EnactionDone = bool
+    ,  ExecActionDone = bool
     ]
 
 type deck_state_t
