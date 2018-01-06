@@ -92,6 +92,7 @@ and general_response
   | PublicGameState  of public_game_state
   | PresidentNow     of int
   | ChancellorChosen of int
+  | VoteState        of { Place : int, State : bool }
   | NewGovt          of new_govt
   | PresidentDiscard
   | PolicyPassed     of side

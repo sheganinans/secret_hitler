@@ -610,6 +610,16 @@ fun players_in_game (gt : game_table) : transaction (list player_connection) =
              WHERE player_in_game.Room = {[gt.Room]}
                AND player_in_game.Game = {[gt.Game]})
 
+fun alive_player_ordering_in_game (gt : game_table) : transaction (list table_ordering_table) =
+    queryL1 (SELECT table_ordering.*
+             FROM (table_ordering
+                 LEFT JOIN dead_player
+                 ON  table_ordering.Room  = dead_player.Room
+                 AND table_ordering.Game  = dead_player.Game
+                 AND table_ordering.Place = dead_player.Place)
+             WHERE table_ordering.Room = {[gt.Room]}
+               AND table_ordering.Game = {[gt.Game]})
+
 fun current_turn_state (gt : game_table) : transaction turn_table =
     oneRow1 (SELECT *
              FROM turn
@@ -631,8 +641,9 @@ fun send_message_to_listeners (gt : game_table) (msg : in_game_response) : trans
 fun update_vote (room_id : int) (vote_b : option bool) : transaction {} =
     (* TODO send vote/unvote state to listeners *)
     pigot <- player_in_game_on_turn_exn room_id;
-    let val (tt, ot) = ( pigot.Turn
-                       , pigot.TableOrder )
+    let val (gt, tt, ot) = ( pigot.Game
+                           , pigot.Turn
+                           , pigot.TableOrder )
     in  if tt.VoteDone
         then return {}
         else vote_o <- oneOrNoRows1 (SELECT *
@@ -640,6 +651,11 @@ fun update_vote (room_id : int) (vote_b : option bool) : transaction {} =
                                      WHERE vote.Room  = {[tt.Room]}
                                        AND vote.Game  = {[tt.Game]}
                                        AND vote.Place = {[ot.Place]});
+             send_message_to_listeners gt
+                                       (GeneralRsp
+                                            (VoteState
+                                                 { Place = ot.Place
+                                                 , State = Option.isSome vote_o }));
              case vote_o of
                  None =>
                  dml (INSERT INTO vote (Room, Game, Turn, Place, Vote)
@@ -713,9 +729,13 @@ fun eval_president_action (room_id : int) (a : Protocol.president) : transaction
             end
         fun call_special_election (place : int) : transaction {} = update_last_action gt
         fun execute_player (place : int) : transaction {} =
-            dml (INSERT INTO dead_player (Room, Game, Turn, Place)
-                 VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}));
-            update_last_action gt
+            if ot.Place = place
+            then return {}
+            else
+                dml (INSERT INTO dead_player (Room, Game, Turn, Place)
+                     VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}));
+                send_message_to_listeners gt (GeneralRsp (PlayerExecuted place));
+                update_last_action gt
         fun president_veto {} : transaction {} =
             if not tt.VetoProposed
             then return {}
@@ -726,6 +746,7 @@ fun eval_president_action (room_id : int) (a : Protocol.president) : transaction
                          , {[tt.Turn]}
                          , {[tt.President]}
                          , {[tt.Chancellor]}));
+                send_message_to_listeners gt (GeneralRsp VetoEnacted);
                 update_last_action gt
     in  if ot.Place <> tt.President then return {}
         else
@@ -916,7 +937,8 @@ fun gen_game_end_state (gt : game_table) (side : side) : transaction game_end_st
            , Fascists = List.mp (fn f => f.Place) fascists
            , Dead = List.mp (fn d => { Turn = d.Turn, Place = d.Place }) dead
            , Start = gt.GameStarted
-           , End = Option.unsafeGet gt.GameEnded }
+           , End = Option.unsafeGet gt.GameEnded
+           }
 
 fun liberals_win (gt : game_table) : transaction {} =
     game_end_state <- gen_game_end_state gt Liberal;
@@ -929,10 +951,13 @@ fun fascists_win (gt : game_table) : transaction {} =
 fun game_loop (gt : game_table) =
     tt <- current_turn_state gt;
     now <- now;
-    let fun action_not_overdue (delta : float) : bool =
+    let fun if_action_overdue (delta : float) (action_f : transaction {}) : transaction {} =
             if gt.TimedGame
-            then addSeconds gt.LastAction (ceil (delta * 60.)) > now
-            else True
+            then
+                if addSeconds gt.LastAction (ceil (delta * 60.)) < now
+                then action_f
+                else return {}
+            else return {}
     in  if tt.LiberalPolicies = 5
         then liberals_win gt
         else
@@ -940,10 +965,7 @@ fun game_loop (gt : game_table) =
             then fascists_win gt
             else
                 if not tt.ChancSelDone
-                then
-                    if action_not_overdue gt.ChanNomTime
-                    then return {}
-                    else punish_president gt
+                then if_action_overdue gt.ChanNomTime (punish_president gt)
                 else
                     if not tt.VoteDone
                     then
@@ -957,9 +979,7 @@ fun game_loop (gt : game_table) =
                             val no  = List.filter (fn v => v.Vote = Some False) votes
                         in  if (* TODO filter dead players *)
                                 List.length (List.append yes no) <> List.length players
-                            then if action_not_overdue gt.GovVoteTime
-                                 then return {}
-                                 else punish_non_voters gt
+                            then if_action_overdue gt.GovVoteTime (punish_non_voters gt)
                             else
                                 if List.length no >= List.length yes
                                 then vote_failed gt
@@ -989,20 +1009,13 @@ fun game_loop (gt : game_table) =
                                  None   => return {}
                                | Some _ => fascists_win gt);
                         if not tt.DiscardDone
-                        then
-                            if action_not_overdue gt.PresDisTime
-                            then return {}
-                            else punish_president gt
+                        then if_action_overdue gt.PresDisTime (punish_president gt)
                         else
                             if not tt.EnactionDone
-                            then if action_not_overdue gt.ChanEnaTime
-                                 then return {}
-                                 else punish_chancellor gt
+                            then if_action_overdue gt.ChanEnaTime (punish_chancellor gt)
                             else
                                 if not tt.ExecActionDone
-                                then if action_not_overdue gt.ExecActTime
-                                     then return {}
-                                     else punish_president gt
+                                then if_action_overdue gt.ExecActTime (punish_president gt)
                                 else return {}
     end
 
@@ -1020,9 +1033,3 @@ task periodic 60 = (* Kick removal loop *)
      fn {} =>
         now <- now;
         dml (DELETE FROM kick WHERE Till < {[now]})
-
-fun admin_view {} : transaction page =
-    let fun submit_admin_view {} : transaction page = return <xml></xml>
-    in  pt <- check_role Admin;
-        return <xml></xml>
-    end
