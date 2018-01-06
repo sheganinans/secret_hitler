@@ -6,10 +6,10 @@ open Utils
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
             let val pw_hs = Auth.basic_hash signup.PassHash
-            in  uo <- oneOrNoRows1 (SELECT player.Username
-                                    FROM player
-                                    WHERE player.Username = {[signup.Username]});
-                case uo of
+            in  u_o <- oneOrNoRows1 (SELECT player.Username
+                                     FROM player
+                                     WHERE player.Username = {[signup.Username]});
+                case u_o of
                     Some u => login_page {}
                   | None =>
                     player_id <- nextval player_seq;
@@ -531,7 +531,7 @@ and player_in_room_exn (room_id : int) : transaction (player_table * room_table)
         None => error <xml>{main_menu_body ()}</xml>
       | Some _ => return (pt, rt)
 
-and player_in_game_exn (room_id : int)
+and player_in_game_on_turn_exn (room_id : int)
     : transaction { Player     :         player_table
                   , Room       :           room_table
                   , Game       :           game_table
@@ -570,8 +570,7 @@ and only_if_owner_mod_exn (room_id : int) : transaction (player_table * room_tab
     then return (pt, rt)
     else error <xml>{main_menu_body {}}</xml>
 
-and only_if_player_not_kicked_exn (room_id : int)
-    : transaction (player_table * room_table) =
+and only_if_player_not_kicked_exn (room_id : int) : transaction (player_table * room_table) =
     pt <- check_role Player;
     rt <- room_exists_exn room_id;
     is_kicked <- oneOrNoRows1 (SELECT *
@@ -625,9 +624,9 @@ fun update_last_action (gt : game_table) =
            AND Game = {[gt.Game]})
 
 fun update_vote (room_id : int) (vote_b : option bool) : transaction {} =
-    pig <- player_in_game_exn room_id;
-    let val (tt, ot) = ( pig.Turn
-                       , pig.TableOrder )
+    pigot <- player_in_game_on_turn_exn room_id;
+    let val (tt, ot) = ( pigot.Turn
+                       , pigot.TableOrder )
     in  if tt.VoteDone
         then return {}
         else vote_o <- oneOrNoRows1 (SELECT *
@@ -653,10 +652,9 @@ fun update_vote (room_id : int) (vote_b : option bool) : transaction {} =
     end
 
 fun eval_president_action (room_id : int) (a : Protocol.president) : transaction {} =
-    pig <- player_in_game_exn room_id;
-    let val (tt, ot) = ( pig.Turn
-                       , pig.TableOrder )
-        fun discard_card (card_id : int) : transaction {} = return {}
+    pigot <- player_in_game_on_turn_exn room_id;
+    let val (tt, ot) = ( pigot.Turn
+                       , pigot.TableOrder )
         fun investigate_loyalty (place : int) : transaction {} = return {}
         fun call_special_election (place : int) : transaction {} = return {}
         fun execute_player (place : int) : transaction {} = return {}
@@ -702,15 +700,19 @@ fun eval_president_action (room_id : int) (a : Protocol.president) : transaction
                 then return {}
                 else
                     (case (tt.FascistPolicies, a) of
-                         (1, InvestigateLoyaltyAct place) => investigate_loyalty place
+                         (1,  InvestigateLoyaltyAct place) => investigate_loyalty   place
                        | (2, CallSpecialElectionAct place) => call_special_election place
-                       | (3, ExecutePlayer place) => execute_player place
-                       | (4, PresidentVeto) => president_veto {}
-                       | _ => return {})
+                       | (3,          ExecutePlayer place) => execute_player        place
+                       | (4,                PresidentVeto) => president_veto {}
+                       | _ => return {});
+                    dml (UPDATE turn
+                         SET ExecActionDone = TRUE
+                         WHERE Room = {[tt.Room]}
+                           AND Game = {[tt.Game]}
+                           AND Turn = {[tt.Turn]})
     end
 
 fun player_action (room_id : int) (action : Protocol.in_game) : transaction {} =
-    pig <- player_in_game_exn room_id;
     case action of
       VoterAction vote_b => update_vote room_id vote_b
     | PresidentAction a => eval_president_action room_id a
@@ -719,7 +721,6 @@ fun player_action (room_id : int) (action : Protocol.in_game) : transaction {} =
            EnactPolicy _ => return {}
          | ProposeVeto => return {})
     | ChatAction a => return {}
-
 
 fun send_message_to_listeners (gt : game_table) (msg : in_game_response) : transaction {} =
     player_list <- players_in_game gt;
@@ -826,14 +827,21 @@ fun punish_non_voters (gt : game_table) : transaction {} =
               non_voters;
         send_punished_list gt (List.mp (fn n => n.Place) non_voters))
 
+fun govt_in_chaos (gt : game_table) : transaction {} = return {}
+
 fun vote_failed (gt : game_table) : transaction {} =
     player_list <- players_in_game gt;
-    turn <- current_turn_state gt;
-    let val state = if turn.RejectCount > 3 then InChaos else Failed
+    tt <- current_turn_state gt;
+    dml (UPDATE turn
+         SET RejectCount = {[tt.RejectCount + 1]}
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]});
+    let val state = if tt.RejectCount = 2 then InChaos else Failed
     in  (case state of
-             Passed => return {(* Will never happen *)}
-           | InChaos => return {}
-           | Failed  => return {});
+             InChaos => govt_in_chaos gt
+           | Failed  =>     skip_turn gt
+           | Passed => return {(* Will never happen *)});
         mapM_ (fn p => send p.Chan (GeneralRsp (NewGovt state))) player_list
     end
 
@@ -841,98 +849,85 @@ fun liberals_win (gt : game_table) : transaction {} = return {}
 
 fun fascists_win (gt : game_table) : transaction {} = return {}
 
-
-fun enact_veto (gt : game_table) : transaction {} = return {}
-
-fun enact_policy (gt : game_table) : transaction {} =
-    let fun investigate_loyalty (gt : game_table) : transaction {} = return {}
-
-        fun call_special_election (gt : game_table) : transaction {} = return {}
-
-        fun policy_peek (gt : game_table) : transaction {} = return {}
-
-        fun execution (gt : game_table) : transaction {} = return {}
-
-        fun veto_power (gt : game_table) : transaction {} = return {}
-
-    in  (* Enacting a policy may change the number of fascist policies. *)
-        turn <- current_turn_state gt;
-        gt |> (case turn.FascistPolicies of
-             0 => fn _ => return {}
-           | 1 => investigate_loyalty
-           | 2 => call_special_election
-           | 3 => policy_peek
-           | 4 => execution
-           | 5 => veto_power
-           | _ => fascists_win)
-    end
+fun next_turn {} : transaction {} = return {}
 
 fun game_loop (gt : game_table) =
-    turn <- current_turn_state gt;
+    tt <- current_turn_state gt;
     now <- now;
     let fun action_not_overdue (delta : float) : bool =
             if gt.TimedGame
             then addSeconds gt.LastAction (ceil (delta * 60.)) > now
             else True
-    in  case turn.LiberalPolicies of
+    in  case tt.LiberalPolicies of
             5 => liberals_win gt
           | _ =>
-            case turn.FascistPolicies of
+            case tt.FascistPolicies of
                 6 => fascists_win gt
               | _ =>
-                case turn.Chancellor of
-                    0 =>
+                if not tt.ChancSelDone
+                then
                     if action_not_overdue gt.ChanNomTime
                     then return {}
                     else punish_president gt
-                  | _ =>
-                    players <- players_in_game gt;
-                    votes <- queryL1 (SELECT *
-                                      FROM vote
-                                      WHERE vote.Room = {[gt.Room]}
-                                        AND vote.Game = {[gt.Game]}
-                                        AND vote.Turn = {[turn.Turn]});
-                    let val yes = List.filter (fn v => v.Vote = Some True) votes
-                        val no = List.filter (fn v => v.Vote = Some False) votes
-                    in if List.length (List.append yes no) <> List.length players
-                       then if action_not_overdue gt.GovVoteTime
-                            then return {}
-                            else punish_non_voters gt
-                       else
-                           if List.length no >= List.length yes
-                           then vote_failed gt
-                           else (* New govt *)
-                               (if turn.FascistPolicies <= 3
-                                then return {}
+                else
+                    if not tt.VoteDone
+                    then
+                        players <- players_in_game gt;
+                        votes <- queryL1 (SELECT *
+                                          FROM vote
+                                          WHERE vote.Room = {[gt.Room]}
+                                            AND vote.Game = {[gt.Game]}
+                                            AND vote.Turn = {[tt.Turn]});
+                        let val yes = List.filter (fn v => v.Vote = Some  True) votes
+                            val no  = List.filter (fn v => v.Vote = Some False) votes
+                        in  if List.length (List.append yes no) <> List.length players
+                            then if action_not_overdue gt.GovVoteTime
+                                 then return {}
+                                 else punish_non_voters gt
+                            else
+                                if List.length no >= List.length yes
+                                then vote_failed gt
                                 else
-                                    hitler_o <- oneOrNoRows1 (SELECT *
-                                                              FROM hitler
-                                                              WHERE hitler.Room = {[gt.Room]}
-                                                                AND hitler.Game = {[gt.Game]}
-                                                                AND hitler.Place =
-                                                                {[turn.Chancellor]});
-                                    case hitler_o of
-                                        None   => return {}
-                                      | Some _ => fascists_win gt);
-                               case turn.PresDisc of
-                                   0 => if action_not_overdue gt.PresDisTime
-                                        then return {}
-                                        else punish_president gt
-                                 | _ =>
-                                   veto_o <- oneOrNoRows1 (SELECT *
-                                                           FROM veto
-                                                           WHERE veto.Room = {[gt.Room]}
-                                                             AND veto.Game = {[gt.Game]}
-                                                             AND veto.Turn = {[turn.Turn]});
-                                   case veto_o of
-                                       Some _ => enact_veto gt
-                                     | None =>
-                                       case turn.ChanEnac of
-                                           0 => if action_not_overdue gt.ChanEnaTime
-                                                then return {}
-                                                else punish_chancellor gt
-                                         | p => enact_policy gt
-                    end
+                                    dml (UPDATE turn
+                                         SET RejectCount = 0
+                                         WHERE Room = {[tt.Room]}
+                                           AND Game = {[tt.Game]}
+                                           AND Turn = {[tt.Turn]});
+                                    dml (UPDATE turn
+                                         SET VoteDone = TRUE
+                                         WHERE Room = {[tt.Room]}
+                                           AND Game = {[tt.Game]}
+                                           AND Turn = {[tt.Turn]})
+                        end
+                    else
+                        (if tt.FascistPolicies <= 3
+                         then return {}
+                         else
+                             hitler_o <- oneOrNoRows1 (SELECT *
+                                                       FROM hitler
+                                                       WHERE hitler.Room = {[gt.Room]}
+                                                         AND hitler.Game = {[gt.Game]}
+                                                         AND hitler.Place =
+                                                         {[tt.Chancellor]});
+                             case hitler_o of
+                                 None   => return {}
+                               | Some _ => fascists_win gt);
+                        if not tt.DiscardDone
+                        then
+                            if action_not_overdue gt.PresDisTime
+                            then return {}
+                            else punish_president gt
+                        else
+                            if not tt.EnactionDone
+                            then if action_not_overdue gt.ChanEnaTime
+                                 then return {}
+                                 else punish_chancellor gt
+                            else
+                                if not tt.ExecActionDone
+                                then if action_not_overdue gt.ExecActTime
+                                     then return {}
+                                     else punish_president gt
+                                else next_turn {}
     end
 
 task periodic 1 = (* Loop for active games. *)
@@ -955,3 +950,31 @@ fun admin_view {} : transaction page =
     in  pt <- check_role Admin;
         return <xml></xml>
     end
+
+
+(*
+fun enact_veto (gt : game_table) : transaction {} = return {}
+
+fun enact_policy (gt : game_table) : transaction {} =
+    let fun investigate_loyalty (gt : game_table) : transaction {} = return {}
+
+        fun call_special_election (gt : game_table) : transaction {} = return {}
+
+        fun policy_peek (gt : game_table) : transaction {} = return {}
+
+        fun execution (gt : game_table) : transaction {} = return {}
+
+        fun veto_power (gt : game_table) : transaction {} = return {}
+
+    in  (* Enacting a policy may change the number of fascist policies. *)
+        turn <- current_turn_state gt;
+        gt |> (case turn.FascistPolicies of
+                   0 => (fn _ => return {})
+                 | 1 => investigate_loyalty
+                 | 2 => call_special_election
+                 | 3 => policy_peek
+                 | 4 => execution
+                 | 5 => veto_power
+                 | _ => fascists_win)
+    end
+*)
