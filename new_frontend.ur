@@ -368,11 +368,10 @@ and start_game (room_id : int) : transaction page =
                                          , {[i]} )))
                    (List.mapi (fn i p => (i+1,p)) in_game_players);
 
-             in_ordering_players
-             <- queryL1 (SELECT *
-                         FROM table_ordering
-                         WHERE table_ordering.Room = {[rt.Room]}
-                           AND table_ordering.Game = {[rt.CurrentGame]});
+             in_ordering_players <- queryL1 (SELECT *
+                                             FROM table_ordering
+                                             WHERE table_ordering.Room = {[rt.Room]}
+                                               AND table_ordering.Game = {[rt.CurrentGame]});
 
              in_ordering_players <- Utils.shuffle in_ordering_players;
 
@@ -655,10 +654,53 @@ fun eval_president_action (room_id : int) (a : Protocol.president) : transaction
     pigot <- player_in_game_on_turn_exn room_id;
     let val (tt, ot) = ( pigot.Turn
                        , pigot.TableOrder )
-        fun investigate_loyalty (place : int) : transaction {} = return {}
+        fun choose_chancellor (chan_id : int) : transaction {} =
+            dml (UPDATE turn
+                 SET Chancellor = {[chan_id]}
+                 WHERE Room = {[tt.Room]}
+                   AND Game = {[tt.Game]}
+                   AND Turn = {[tt.Turn]});
+            dml (UPDATE turn
+                 SET ChancSelDone = TRUE
+                 WHERE Room = {[tt.Room]}
+                   AND Game = {[tt.Game]}
+                   AND Turn = {[tt.Turn]})
+        fun discard_card (card_id : int) : transaction {} =
+            dml (UPDATE turn
+                 SET PresDisc = {[card_id]}
+                 WHERE Room = {[tt.Room]}
+                   AND Game = {[tt.Game]}
+                   AND Turn = {[tt.Turn]});
+            dml (UPDATE turn
+                 SET DiscardDone = TRUE
+                 WHERE Room = {[tt.Room]}
+                   AND Game = {[tt.Game]}
+                   AND Turn = {[tt.Turn]})
+        fun investigate_loyalty (place : int) : transaction {} =
+            dml (INSERT INTO loyalty_investigation (Room, Game, Turn, Place)
+                 VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}));
+            let fun is_a_fascist (place : int) : transaction {} = return {}
+                fun is_a_liberal (place : int) : transaction {} = return {}
+            in  possible_liberal <- oneOrNoRows1 (SELECT *
+                                                  FROM liberal
+                                                  WHERE liberal.Room = {[tt.Room]}
+                                                    AND liberal.Game = {[tt.Game]}
+                                                    AND liberal.Place = {[place]});
+                case possible_liberal of
+                    None => is_a_fascist place
+                  | Some _  => is_a_liberal place
+            end
         fun call_special_election (place : int) : transaction {} = return {}
-        fun execute_player (place : int) : transaction {} = return {}
-        fun president_veto {} : transaction {} = return {}
+        fun execute_player (place : int) : transaction {} =
+            dml (INSERT INTO dead_player (Room, Game, Turn, Place)
+                 VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}))
+        fun president_veto {} : transaction {} =
+            dml (INSERT INTO veto (Room, Game, Turn, President, Chancellor)
+                 VALUES ({[tt.Room]}
+                     , {[tt.Game]}
+                     , {[tt.Turn]}
+                     , {[tt.President]}
+                     , {[tt.Chancellor]}))
     in  if ot.Place <> tt.President
         then return {}
         else
@@ -668,33 +710,14 @@ fun eval_president_action (room_id : int) (a : Protocol.president) : transaction
                      ChooseChancellor chan_id =>
                      if tt.ChancSelDone
                      then return {}
-                     else
-                         dml (UPDATE turn
-                              SET Chancellor = {[chan_id]}
-                              WHERE Room = {[tt.Room]}
-                                AND Game = {[tt.Game]}
-                                AND Turn = {[tt.Turn]});
-                         dml (UPDATE turn
-                              SET ChancSelDone = TRUE
-                              WHERE Room = {[tt.Room]}
-                                AND Game = {[tt.Game]}
-                                AND Turn = {[tt.Turn]})
+                     else choose_chancellor chan_id
                    | PresidentDiscardCard card_id =>
                      if tt.DiscardDone
                      then return {}
-                     else (if card_id > 3 || card_id <= 0
-                           then return {}
-                           else
-                               dml (UPDATE turn
-                                    SET PresDisc = {[card_id]}
-                                    WHERE Room = {[tt.Room]}
-                                      AND Game = {[tt.Game]}
-                                      AND Turn = {[tt.Turn]});
-                               dml (UPDATE turn
-                                    SET DiscardDone = TRUE
-                                    WHERE Room = {[tt.Room]}
-                                      AND Game = {[tt.Game]}
-                                      AND Turn = {[tt.Turn]})))
+                     else
+                         if card_id > 3 || card_id <= 0
+                         then return {}
+                         else discard_card card_id)
               | ExecutiveActionMsg a =>
                 if tt.ExecActionDone
                 then return {}
@@ -704,12 +727,7 @@ fun eval_president_action (room_id : int) (a : Protocol.president) : transaction
                        | (2, CallSpecialElectionAct place) => call_special_election place
                        | (3,          ExecutePlayer place) => execute_player        place
                        | (4,                PresidentVeto) => president_veto {}
-                       | _ => return {});
-                    dml (UPDATE turn
-                         SET ExecActionDone = TRUE
-                         WHERE Room = {[tt.Room]}
-                           AND Game = {[tt.Game]}
-                           AND Turn = {[tt.Turn]})
+                       | _ => return {})
     end
 
 fun player_action (room_id : int) (action : Protocol.in_game) : transaction {} =
@@ -858,12 +876,12 @@ fun game_loop (gt : game_table) =
             if gt.TimedGame
             then addSeconds gt.LastAction (ceil (delta * 60.)) > now
             else True
-    in  case tt.LiberalPolicies of
-            5 => liberals_win gt
-          | _ =>
-            case tt.FascistPolicies of
-                6 => fascists_win gt
-              | _ =>
+    in  if tt.LiberalPolicies = 5
+        then liberals_win gt
+        else
+            if tt.FascistPolicies = 6
+            then fascists_win gt
+            else
                 if not tt.ChancSelDone
                 then
                     if action_not_overdue gt.ChanNomTime
@@ -880,7 +898,8 @@ fun game_loop (gt : game_table) =
                                             AND vote.Turn = {[tt.Turn]});
                         let val yes = List.filter (fn v => v.Vote = Some  True) votes
                             val no  = List.filter (fn v => v.Vote = Some False) votes
-                        in  if List.length (List.append yes no) <> List.length players
+                        in  if (* TODO filter dead players *)
+                                List.length (List.append yes no) <> List.length players
                             then if action_not_overdue gt.GovVoteTime
                                  then return {}
                                  else punish_non_voters gt
@@ -950,31 +969,3 @@ fun admin_view {} : transaction page =
     in  pt <- check_role Admin;
         return <xml></xml>
     end
-
-
-(*
-fun enact_veto (gt : game_table) : transaction {} = return {}
-
-fun enact_policy (gt : game_table) : transaction {} =
-    let fun investigate_loyalty (gt : game_table) : transaction {} = return {}
-
-        fun call_special_election (gt : game_table) : transaction {} = return {}
-
-        fun policy_peek (gt : game_table) : transaction {} = return {}
-
-        fun execution (gt : game_table) : transaction {} = return {}
-
-        fun veto_power (gt : game_table) : transaction {} = return {}
-
-    in  (* Enacting a policy may change the number of fascist policies. *)
-        turn <- current_turn_state gt;
-        gt |> (case turn.FascistPolicies of
-                   0 => (fn _ => return {})
-                 | 1 => investigate_loyalty
-                 | 2 => call_special_election
-                 | 3 => policy_peek
-                 | 4 => execution
-                 | 5 => veto_power
-                 | _ => fascists_win)
-    end
-*)
