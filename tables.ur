@@ -142,10 +142,11 @@ type deck_state_t
     ]
 
 type game_state_t
-  = [ PresDisc    = int
-    , ChanEnac    = int
-    , NextPres    = int
-    , RejectCount = int
+  = [ PresDisc     = int
+    , ChanEnac     = int
+    , NextPres     = int
+    , RejectCount  = int
+    , VetoProposed = bool
     ]
 
 type turn_table_t = turn_id_t ++ game_flow_t ++ govt_state_t ++ deck_state_t ++ game_state_t

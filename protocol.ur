@@ -50,14 +50,17 @@ type public_game_state
     , Players     : list { Player : int, Username : string }
     }
 
-type game_end_state
-  = { Winners  : side
-    , Hitler   :      int
-    , Liberals : list int
-    , Fascists : list int
-    , Dead     : list int
-    , Start    : time
-    }
+type game_end_state_t
+  = [ Winners  = side
+    , Hitler   =      int
+    , Liberals = list int
+    , Fascists = list int
+    , Dead     = list { Turn : int, Place : int }
+    , Start    = time
+    , End      = time
+    ]
+
+type game_end_state = $game_end_state_t
 
 datatype game_role
   = Liberal
@@ -90,6 +93,7 @@ and general_response
   | PresidentNow     of int
   | ChancellorChosen of int
   | NewGovt          of new_govt
+  | PresidentDiscard
   | PolicyPassed     of side
   | PlayersPunished  of list int
   | PlayerExecuted   of int
