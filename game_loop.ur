@@ -23,11 +23,7 @@ fun game_loop (gt : game_table) =
                     if not tt.VoteDone
                     then
                         players <- players_in_game gt;
-                        votes <- queryL1 (SELECT *
-                                          FROM vote
-                                          WHERE vote.Room = {[gt.Room]}
-                                            AND vote.Game = {[gt.Game]}
-                                            AND vote.Turn = {[tt.Turn]});
+                        votes <- current_votes tt;
                         let val yes = List.filter (fn v => v.Vote = Some  True) votes
                             val no  = List.filter (fn v => v.Vote = Some False) votes
                         in  if (* TODO filter dead players *)
@@ -37,16 +33,8 @@ fun game_loop (gt : game_table) =
                                 if List.length no >= List.length yes
                                 then vote_failed gt
                                 else
-                                    dml (UPDATE turn
-                                         SET RejectCount = 0
-                                         WHERE Room = {[tt.Room]}
-                                           AND Game = {[tt.Game]}
-                                           AND Turn = {[tt.Turn]});
-                                    dml (UPDATE turn
-                                         SET VoteDone = TRUE
-                                         WHERE Room = {[tt.Room]}
-                                           AND Game = {[tt.Game]}
-                                           AND Turn = {[tt.Turn]})
+                                    reset_reject_counter tt;
+                                    vote_done tt
                         end
                     else
                         (if tt.FascistPolicies <= 3
@@ -55,17 +43,8 @@ fun game_loop (gt : game_table) =
                              if tt.HitlerCheckDone
                              then return {}
                              else
-                                 hitler_o <- oneOrNoRows1 (SELECT *
-                                                           FROM hitler
-                                                           WHERE hitler.Room = {[gt.Room]}
-                                                             AND hitler.Game = {[gt.Game]}
-                                                             AND hitler.Place =
-                                                             {[tt.Chancellor]});
-                                 dml (UPDATE turn
-                                      SET HitlerCheckDone = TRUE
-                                      WHERE Room = {[tt.Room]}
-                                        AND Game = {[tt.Game]}
-                                        AND Turn = {[tt.Turn]});
+                                 hitler_o <- possible_hitler tt;
+                                 hitler_check_done tt;
                                  case hitler_o of
                                      None   => return {}
                                    | Some _ => fascists_win gt);
@@ -82,9 +61,5 @@ fun game_loop (gt : game_table) =
 
 task periodic 1 = (* Loop for active games. *)
      fn {} =>
-        games <- queryL1 (SELECT game.*
-                          FROM (game
-                              INNER JOIN room
-                              ON  game.Room = room.Room
-                              AND game.Game = room.CurrentGame));
+        games <- active_games {};
         mapM_ game_loop games

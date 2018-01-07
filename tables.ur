@@ -333,6 +333,13 @@ fun update_last_action (gt : game_table) =
          WHERE Room = {[gt.Room]}
            AND Game = {[gt.Game]})
 
+fun active_games {} : transaction (list game_table) =
+    queryL1 (SELECT game.*
+             FROM (game
+                 INNER JOIN room
+                 ON  game.Room = room.Room
+                 AND game.Game = room.CurrentGame))
+
 fun current_turn_state (gt : game_table) : transaction turn_table =
     oneRow1 (SELECT *
              FROM turn
@@ -385,6 +392,13 @@ fun possible_liberal (rt : room_table)
                   WHERE liberal.Room = {[rt.Room]}
                     AND liberal.Game = {[rt.CurrentGame]}
                     AND liberal.Place = {[place]})
+
+fun possible_hitler (tt : turn_table) : transaction (option {Place : int}) =
+    oneOrNoRows1 (SELECT hitler.Place
+                  FROM hitler
+                  WHERE hitler.Room = {[tt.Room]}
+                    AND hitler.Game = {[tt.Game]}
+                    AND hitler.Place = {[tt.Chancellor]})
 
 fun submit_chancellor (gt : game_table)
                       (tt : turn_table)
@@ -447,9 +461,37 @@ fun update_vote (tt : turn_table) (place : int) (a : option bool) : transaction 
            AND Turn  = {[tt.Turn]}
            AND Place = {[place]})
 
+fun current_votes (tt : turn_table) : transaction (list vote_table) =
+    queryL1 (SELECT *
+             FROM vote
+             WHERE vote.Room = {[tt.Room]}
+               AND vote.Game = {[tt.Game]}
+               AND vote.Turn = {[tt.Turn]})
+
 fun incr_reject_counter (tt : turn_table) : transaction {} =
     dml (UPDATE turn
          SET RejectCount = {[tt.RejectCount + 1]}
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]})
+
+fun reset_reject_counter (tt : turn_table) : transaction {} =
+    dml (UPDATE turn
+         SET RejectCount = 0
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]})
+
+fun vote_done (tt : turn_table) : transaction {} =
+    dml (UPDATE turn
+         SET VoteDone = TRUE
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]})
+
+fun hitler_check_done (tt : turn_table) : transaction {} =
+    dml (UPDATE turn
+         SET HitlerCheckDone = TRUE
          WHERE Room = {[tt.Room]}
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]})
