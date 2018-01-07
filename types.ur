@@ -18,7 +18,6 @@ val player_numbers_table : list (int * player_numbers_row) =
 datatype step
   = ChancellorSelectStep
   | VoteStep
-  | HitlerCheckStep
   | DiscardStep
   | EnactStep
   | ExecActionStep
