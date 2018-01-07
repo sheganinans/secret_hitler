@@ -1,4 +1,6 @@
+open Protocol
 open Types
+open Utils
 
 type player_table_t = [ Player = int ] ++ player_name_and_pass_t
 
@@ -204,6 +206,21 @@ table turn :
               + (IF NOT Trd THEN 1 ELSE 0)
               = {[number_of_fascist_policies]}
 
+type capability_table_t
+  = turn_id_t
+  ++ [ Place      = int
+     , Capability = int
+     , Action     = serialized Types.action
+     ]
+
+type capability_table = $capability_table_t
+
+table capability :
+      capability_table_t PRIMARY KEY (Room, Game, Turn, Place, Capability)
+    , CONSTRAINT HasTurn FOREIGN KEY (Room, Game, Turn) REFERENCES turn (Room, Game, Turn)
+    , CONSTRAINT InGameOrdering FOREIGN KEY (Room, Game, Place)
+                   REFERENCES table_ordering (Room, Game, Place)
+
 type vote_table_t = turn_id_t ++ [ Place = int, Vote = option bool ]
 
 type vote_table = $vote_table_t
@@ -308,3 +325,204 @@ fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction { Pla
              WHERE player_in_game.Room = {[rt.Room]}
                AND player_in_game.Game = {[rt.CurrentGame]}
                AND player_in_game.InGameId = {[pid]})
+
+fun update_last_action (gt : game_table) =
+    now <- now;
+    dml (UPDATE game
+         SET LastAction = {[now]}
+         WHERE Room = {[gt.Room]}
+           AND Game = {[gt.Game]})
+
+fun current_turn_state (gt : game_table) : transaction turn_table =
+    oneRow1 (SELECT *
+             FROM turn
+             WHERE turn.Room = {[gt.Room]}
+               AND turn.Game = {[gt.Game]}
+               AND turn.Turn = {[gt.CurrentTurn]})
+
+fun players_in_game (gt : game_table) : transaction (list player_connection) =
+    queryL1 (SELECT *
+             FROM player_in_game
+             WHERE player_in_game.Room = {[gt.Room]}
+               AND player_in_game.Game = {[gt.Game]})
+
+fun send_public_message (gt : game_table) (msg : in_game_response) : transaction {} =
+    player_list <- players_in_game gt;
+    mapM_ (fn p => send p.Chan msg) player_list
+
+fun alive_player_ordering (gt : game_table) : transaction (list table_ordering_table) =
+    queryL1 (SELECT table_ordering.*
+             FROM (table_ordering
+                 LEFT JOIN dead_player
+                 ON  table_ordering.Room  = dead_player.Room
+                 AND table_ordering.Game  = dead_player.Game
+                 AND table_ordering.Place = dead_player.Place)
+             WHERE table_ordering.Room = {[gt.Room]}
+               AND table_ordering.Game = {[gt.Game]})
+
+fun previous_turn (tt : turn_table) : transaction (option turn_table) =
+    oneOrNoRows1 (SELECT *
+                  FROM turn
+                  WHERE turn.Room = {[tt.Room]}
+                    AND turn.Game = {[tt.Game]}
+                    AND turn.Turn = {[tt.Turn - 1]})
+
+fun president_veto_turn (gt : game_table) (tt : turn_table) : transaction {} =
+    dml (INSERT INTO veto (Room, Game, Turn, President, Chancellor)
+         VALUES ({[tt.Room]}
+             , {[tt.Game]}
+             , {[tt.Turn]}
+             , {[tt.President]}
+             , {[tt.Chancellor]}));
+    send_public_message gt (GeneralRsp VetoEnacted);
+    update_last_action gt
+
+(* TODO update option to result to model state of place not being in turn. *)
+fun possible_liberal (rt : room_table)
+                     (place : int) : transaction (option {Place : int}) =
+    oneOrNoRows1 (SELECT liberal.Place
+                  FROM liberal
+                  WHERE liberal.Room = {[rt.Room]}
+                    AND liberal.Game = {[rt.CurrentGame]}
+                    AND liberal.Place = {[place]})
+
+fun submit_chancellor (gt : game_table)
+                      (tt : turn_table)
+                      (chan_id : int) : transaction {} =
+    dml (UPDATE turn
+         SET Chancellor = {[chan_id]}
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]});
+    dml (UPDATE turn
+         SET ChancSelDone = TRUE
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]});
+    send_public_message gt (GeneralRsp (ChancellorChosen chan_id));
+    update_last_action gt
+
+fun submit_discard (tt : turn_table) (card_id : int) : transaction {} =
+    dml (UPDATE turn
+         SET PresDisc = {[card_id]}
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]});
+    dml (UPDATE turn
+         SET DiscardDone = TRUE
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]})
+
+fun submit_loyalty_investigation (tt : turn_table) (place : int) : transaction {} =
+    dml (INSERT INTO loyalty_investigation (Room, Game, Turn, Place)
+         VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}))
+
+fun kill_player (gt : game_table) (tt : turn_table) (place : int) : transaction {} =
+    dml (INSERT INTO dead_player (Room, Game, Turn, Place)
+         VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}))
+
+fun does_vote_exist_for (tt : turn_table)
+                        (place : int) : transaction (option vote_table) =
+    oneOrNoRows1 (SELECT *
+                  FROM vote
+                  WHERE vote.Room  = {[tt.Room]}
+                    AND vote.Game  = {[tt.Game]}
+                    AND vote.Turn  = {[tt.Turn]}
+                    AND vote.Place = {[place]})
+
+fun new_vote (tt : turn_table) (place : int) (a : option bool) : transaction {} =
+    dml (INSERT INTO vote (Room, Game, Turn, Place, Vote)
+         VALUES ( {[tt.Room]}
+             , {[tt.Game]}
+             , {[tt.Turn]}
+             , {[place]}
+             , {[a]} ))
+
+fun update_vote (tt : turn_table) (place : int) (a : option bool) : transaction {} =
+    dml (UPDATE vote
+         SET Vote = {[a]}
+         WHERE Room  = {[tt.Room]}
+           AND Game  = {[tt.Game]}
+           AND Turn  = {[tt.Turn]}
+           AND Place = {[place]})
+
+fun incr_reject_counter (tt : turn_table) : transaction {} =
+    dml (UPDATE turn
+         SET RejectCount = {[tt.RejectCount + 1]}
+         WHERE Room = {[tt.Room]}
+           AND Game = {[tt.Game]}
+           AND Turn = {[tt.Turn]})
+
+fun skip_turn (gt : game_table) : transaction {} =
+    current_turn <- current_turn_state gt;
+    deck <- next_turn_deck_state { LiberalsInDraw = current_turn.LiberalsInDraw
+                                 , FascistsInDraw = current_turn.FascistsInDraw
+                                 , LiberalsInDisc = current_turn.LiberalsInDisc
+                                 , FascistsInDisc = current_turn.FascistsInDisc };
+    dml (INSERT INTO turn
+           ( Room
+             , Game
+             , Turn
+             , President
+             , NextPres
+             , Chancellor
+             , RejectCount
+             , VetoProposed
+             ,    ChancSelDone
+             ,        VoteDone
+             , HitlerCheckDone
+             ,     DiscardDone
+             ,    EnactionDone
+             ,  ExecActionDone
+             , LiberalsInDraw
+             , FascistsInDraw
+             , LiberalsInDisc
+             , FascistsInDisc
+             , Fst
+             , Snd
+             , Trd
+             , PresDisc
+             , ChanEnac
+             , LiberalPolicies
+             , FascistPolicies )
+         VALUES
+           ( {[current_turn.Room]}
+             , {[current_turn.Game]}
+             , {[current_turn.Turn + 1]}
+             , {[current_turn.NextPres]}
+             , {[current_turn.NextPres + 1]} (* TODO add rollover and skipping dead *)
+             , 0
+             , {[current_turn.RejectCount + 1]}
+             , FALSE
+             , FALSE
+             , FALSE
+             , FALSE
+             , FALSE
+             , FALSE
+             , FALSE
+             , {[deck.LibDraw]}
+             , {[deck.FasDraw]}
+             , {[deck.LibDisc]}
+             , {[deck.FasDisc]}
+             , {[deck.Fst]}
+             , {[deck.Snd]}
+             , {[deck.Trd]}
+             , 0
+             , 0
+             , {[current_turn.LiberalPolicies]}
+             , {[current_turn.FascistPolicies]} ))
+
+fun current_step (tt : turn_table) : step =
+    if not tt.ChancSelDone
+    then ChancellorSelectStep
+    else
+        if not tt.VoteDone
+        then VoteStep
+        else
+            if not tt.DiscardDone
+            then DiscardStep
+            else
+                if not tt.EnactionDone
+                then EnactStep
+                else ExecActionStep

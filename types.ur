@@ -15,13 +15,6 @@ val player_numbers_table : list (int * player_numbers_row) =
     (9 , { Liberals = 5, Fascists = 3 }) ::
     (10, { Liberals = 6, Fascists = 3 }) :: []
 
-datatype step
-  = ChancellorSelectStep
-  | VoteStep
-  | DiscardStep
-  | EnactStep
-  | ExecActionStep
-
 (* Table Types *)
 
 type rule_set_t
@@ -48,6 +41,27 @@ type govt_state = $govt_state_t
 type chat_contents_t = [ Player = int, When = time, Text = string ]
 
 type chat_contents = $chat_contents_t
+
+datatype step
+  = ChancellorSelectStep
+  | VoteStep
+  | DiscardStep
+  | EnactStep
+  | ExecActionStep
+
+datatype exec_action
+  = InvestigateLoyalty  of int
+  | CallSpecialElection of int
+  | ExecutePlayer       of int
+  | Veto
+  | RejectVeto
+
+datatype action
+  = Vote             of option bool
+  | ChooseChancellor of int
+  | DiscardPolicy    of int
+  | EnactPolicy      of int
+  | ExecutiveAction  of exec_action
 
 (* Auth Types *)
 

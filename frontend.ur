@@ -3,9 +3,6 @@ open Protocol
 open Tables
 open Utils
 
-open Player_action
-open Server_response
-
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
             let val pw_hs = Auth.basic_hash signup.PassHash

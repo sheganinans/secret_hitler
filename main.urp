@@ -9,8 +9,7 @@ file /styles.css styles/styles.css
 onError Error_page.error_page
 rewrite style Styles/* [-]
 rewrite url Main/*
-#rewrite url Frontend/*
-rewrite url New_frontend/*
+rewrite url Frontend/*
 safeGet view_room
 safeGet join_room
 script https://code.jquery.com/jquery-2.1.4.min.js
@@ -29,7 +28,10 @@ instances
 error_page
 head
 auth
-player_action
 server_response
-new_frontend
+capability
+frontend
+game_loop
+
+
 main
