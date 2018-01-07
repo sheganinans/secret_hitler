@@ -57,11 +57,16 @@ datatype exec_action
   | RejectVeto
 
 datatype action
-  = Vote             of option bool
+  = SetRuleSet
+  | StartGame
+  | Vote             of option bool
   | ChooseChancellor of int
   | DiscardPolicy    of int
   | EnactPolicy      of int
   | ExecutiveAction  of exec_action
+
+datatype capability_arg
+  = RuleSetArg of rule_set
 
 (* Auth Types *)
 

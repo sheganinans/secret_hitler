@@ -381,8 +381,7 @@ fun president_veto_turn (gt : game_table) (tt : turn_table) : transaction {} =
              , {[tt.Turn]}
              , {[tt.President]}
              , {[tt.Chancellor]}));
-    send_public_message gt (GeneralRsp VetoEnacted);
-    update_last_action gt
+    send_public_message gt (GeneralRsp VetoEnacted)
 
 (* TODO update option to result to model state of place not being in turn. *)
 fun possible_liberal (rt : room_table)
@@ -400,8 +399,7 @@ fun possible_hitler (tt : turn_table) : transaction (option {Place : int}) =
                     AND hitler.Game = {[tt.Game]}
                     AND hitler.Place = {[tt.Chancellor]})
 
-fun submit_chancellor (gt : game_table)
-                      (tt : turn_table)
+fun submit_chancellor (tt : turn_table)
                       (chan_id : int) : transaction {} =
     dml (UPDATE turn
          SET Chancellor = {[chan_id]}
@@ -412,9 +410,7 @@ fun submit_chancellor (gt : game_table)
          SET ChancSelDone = TRUE
          WHERE Room = {[tt.Room]}
            AND Game = {[tt.Game]}
-           AND Turn = {[tt.Turn]});
-    send_public_message gt (GeneralRsp (ChancellorChosen chan_id));
-    update_last_action gt
+           AND Turn = {[tt.Turn]})
 
 fun submit_discard (tt : turn_table) (card_id : int) : transaction {} =
     dml (UPDATE turn
