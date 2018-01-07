@@ -14,16 +14,16 @@ fun send_punished_list (gt : game_table) (l : list int) : transaction {} =
 
 fun punish_president (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn tt =>
-        kill_player gt tt tt.President;
+        kill_player tt tt.President;
         send_punished_list gt (tt.President :: []))
 
 fun punish_chancellor (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn tt =>
-        kill_player gt tt tt.Chancellor;
+        kill_player tt tt.Chancellor;
         send_punished_list gt (tt.Chancellor :: []))
 
 fun punish_non_voters (gt : game_table) : transaction {} =
-    enact_skip_turn_or_kill gt (fn turn =>
+    enact_skip_turn_or_kill gt (fn tt =>
         non_voters <- queryL1 (SELECT table_ordering.Place
                                FROM (table_ordering
                                    LEFT JOIN vote
@@ -32,7 +32,7 @@ fun punish_non_voters (gt : game_table) : transaction {} =
                                    AND table_ordering.Place = vote.Place)
                                WHERE table_ordering.Room = {[gt.Room]}
                                  AND table_ordering.Game = {[gt.Game]});
-        mapM_ (fn p => kill_player gt turn p.Place) non_voters;
+        mapM_ (fn p => kill_player tt p.Place) non_voters;
         send_punished_list gt (List.mp (fn n => n.Place) non_voters))
 
 fun govt_in_chaos (gt : game_table) : transaction {} = return {}

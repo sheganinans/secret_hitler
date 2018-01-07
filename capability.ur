@@ -21,9 +21,20 @@ fun eval_capability (room_id : int)
             submit_chancellor tt chan_id;
             send_public_message gt (GeneralRsp (ChancellorChosen chan_id))
 
-        fun discard (p : int) : transaction {} =
+        fun discard (p : card) : transaction {} =
             submit_discard tt p;
             send_public_message gt (GeneralRsp PresidentDiscard)
+
+        fun enact_policy (c : card) : transaction {} =
+            let fun from_bool (b : bool) : side = if b then Liberal else Fascist
+
+                val chosen_policy : side = from_bool (case c of
+                                                          Fst => tt.Fst
+                                                        | Snd => tt.Snd
+                                                        | Trd => tt.Trd)
+            in
+                send_public_message gt (GeneralRsp (PolicyPassed chosen_policy))
+            end
 
         fun eval_vote (v : option bool) : transaction {} =
             vote_o <- does_vote_exist_for tt ot.Place;
@@ -50,11 +61,10 @@ fun eval_capability (room_id : int)
                     fun call_special_election (place : int) : transaction {} =
                         return {}
                     fun execute_player (place : int) : transaction {} =
-                        if ot.Place = place then return {}
-                        else kill_player gt tt ot.Place
+                        kill_player tt ot.Place
                     fun president_veto {} : transaction {} =
-                        if not tt.VetoProposed then return {}
-                        else president_veto_turn gt tt
+                        president_veto_turn gt tt
+                    fun reject_veto {} : transaction {} = return {}
                 in  case a of
                         InvestigateLoyalty  place => investigate_loyalty   place
                       | CallSpecialElection place => call_special_election place
@@ -62,6 +72,14 @@ fun eval_capability (room_id : int)
                       | Veto                      => president_veto {}
                       | RejectVeto                => return {}
                 end
+
+        fun run_timed (a : timed_action) : transaction {} =
+            update_last_action gt;
+            case a of
+                ChooseChancellor c => choose_chancellor c
+              | DiscardPolicy    p => discard p
+              |   EnactPolicy    p => enact_policy p
+              | ExecutiveAction ea => eval_exec_action ea
 
     in  capability_o <- oneOrNoRows1 (SELECT *
                                       FROM capability
@@ -73,13 +91,9 @@ fun eval_capability (room_id : int)
         case capability_o of
             None => return {}
           | Some cap =>
-            (*update_last_action gt;*)
             case deserialize cap.Action of
-                SetRuleSet         => set_rule_set {}
-              | StartGame          => start_game {}
-              | Vote             v => eval_vote v
-              | ChooseChancellor c => choose_chancellor c
-              | DiscardPolicy    p => discard p
-              |   EnactPolicy    p => return {} (* TODO *)
-              | ExecutiveAction ea => eval_exec_action ea
+                SetRuleSet   => set_rule_set {}
+              | StartGame    => start_game {}
+              | Vote       v => eval_vote v
+              | Timed      a => run_timed a
     end

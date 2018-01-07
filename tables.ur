@@ -412,9 +412,11 @@ fun submit_chancellor (tt : turn_table)
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]})
 
-fun submit_discard (tt : turn_table) (card_id : int) : transaction {} =
+fun submit_discard (tt : turn_table) (c : card) : transaction {} =
     dml (UPDATE turn
-         SET PresDisc = {[card_id]}
+         SET PresDisc = {[case c of Fst => 1
+                                  | Snd => 2
+                                  | Trd => 3]}
          WHERE Room = {[tt.Room]}
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]});
@@ -428,12 +430,11 @@ fun submit_loyalty_investigation (tt : turn_table) (place : int) : transaction {
     dml (INSERT INTO loyalty_investigation (Room, Game, Turn, Place)
          VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}))
 
-fun kill_player (gt : game_table) (tt : turn_table) (place : int) : transaction {} =
+fun kill_player (tt : turn_table) (place : int) : transaction {} =
     dml (INSERT INTO dead_player (Room, Game, Turn, Place)
          VALUES ({[tt.Room]}, {[tt.Game]}, {[tt.Turn]}, {[place]}))
 
-fun does_vote_exist_for (tt : turn_table)
-                        (place : int) : transaction (option vote_table) =
+fun does_vote_exist_for (tt : turn_table) (place : int) : transaction (option vote_table) =
     oneOrNoRows1 (SELECT *
                   FROM vote
                   WHERE vote.Room  = {[tt.Room]}
