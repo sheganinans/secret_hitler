@@ -3,6 +3,17 @@ open Protocol
 open Tables
 open Utils
 
+
+fun select_rooms_controlled {} : transaction (list room_table) =
+    pt <- check_role Player;
+    rl_1 <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
+    rl_2 <- queryL1 (SELECT room.*
+                     FROM (room
+                         INNER JOIN mod
+                         ON room.Room   = mod.Room
+                         AND mod.Player = {[pt.Player]}));
+    return (List.append rl_1 rl_2)
+
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
             let val pw_hs = Auth.basic_hash signup.PassHash
@@ -325,17 +336,10 @@ and view_room (room_id : int) : transaction page =
                       , KnownAffiliations = []
                       , Top3CardsInDraw   = []
                       };
+
         let fun no_game_yet {} : transaction xbody = return <xml></xml>
 
             fun join_game_view {} : transaction xbody = return <xml></xml>
-
-            fun fascist_view {} : transaction xbody = return <xml></xml>
-
-            fun hitler_view {} : transaction xbody = return <xml></xml>
-
-            fun liberal_view {} : transaction xbody = return <xml></xml>
-
-            fun watcher_view {} : transaction xbody = return <xml></xml>
 
         in  player_list <- get_all_un_and_id_in_room room_id;
             return <xml><body onload={return {}}><table>
@@ -510,16 +514,6 @@ and new_mod {} : transaction page =
     end
 
 and rem_mod {} : transaction page = return <xml></xml>
-
-and select_rooms_controlled {} : transaction (list room_table) =
-    pt <- check_role Player;
-    rl_1 <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
-    rl_2 <- queryL1 (SELECT room.*
-                     FROM (room
-                         INNER JOIN mod
-                         ON room.Room   = mod.Room
-                         AND mod.Player = {[pt.Player]}));
-    return (List.append rl_1 rl_2)
 
 task periodic 60 = (* Kick removal loop *)
      fn {} =>

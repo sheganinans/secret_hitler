@@ -2,6 +2,11 @@
 
 datatype side = Fascist | Liberal
 
+fun side_from_bool (b : bool) : side = if b then Liberal else Fascist
+fun bool_from_side (s : side) : bool = case s of
+                                           Liberal => True
+                                         | Fascist => False
+
 val number_of_fascist_policies = 11
 val number_of_liberal_policies = 6
 
@@ -49,26 +54,24 @@ datatype step
   | EnactStep
   | ExecActionStep
 
-datatype exec_action
-  = InvestigateLoyalty  of int
-  | CallSpecialElection of int
-  | ExecutePlayer       of int
-  | Veto
-  | RejectVeto
-
 datatype card = Fst | Snd | Trd
-
-datatype timed_action
-  = ChooseChancellor of int
-  | DiscardPolicy    of card
-  |   EnactPolicy    of card
-  | ExecutiveAction  of exec_action
 
 datatype action
   = SetRuleSet
   | StartGame
   | Vote       of option bool
   | Timed      of timed_action
+and timed_action
+  = ChooseChancellor of int
+  | DiscardPolicy    of card
+  |   EnactPolicy    of card
+  | ExecutiveAction  of exec_action
+and exec_action
+  = InvestigateLoyalty  of int
+  | CallSpecialElection of int
+  | ExecutePlayer       of int
+  | Veto
+  | RejectVeto
 
 datatype capability_arg
   = RuleSetArg of rule_set

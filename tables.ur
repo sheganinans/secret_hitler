@@ -353,9 +353,35 @@ fun players_in_game (gt : game_table) : transaction (list player_connection) =
              WHERE player_in_game.Room = {[gt.Room]}
                AND player_in_game.Game = {[gt.Game]})
 
+fun player_at_table (tt : turn_table) (place : int) : transaction (table_ordering_table) =
+    oneRow1 (SELECT *
+             FROM table_ordering
+             WHERE table_ordering.Room = {[tt.Room]}
+               AND table_ordering.Game = {[tt.Game]}
+               AND table_ordering.Place = {[place]})
+
+fun player_connection_in_game (tt : turn_table)
+                              (in_game_id : int) : transaction player_connection =
+    oneRow1 (SELECT *
+             FROM player_in_game
+             WHERE player_in_game.Room = {[tt.Room]}
+               AND player_in_game.Game = {[tt.Game]}
+               AND player_in_game.InGameId = {[in_game_id]})
+
 fun send_public_message (gt : game_table) (msg : in_game_response) : transaction {} =
     player_list <- players_in_game gt;
     mapM_ (fn p => send p.Chan msg) player_list
+
+fun get_capability (tt : turn_table)
+                   (place : int)
+                   (cap_id : int) : transaction (option capability_table) =
+    oneOrNoRows1 (SELECT *
+                  FROM capability
+                  WHERE capability.Room = {[tt.Room]}
+                    AND capability.Game = {[tt.Game]}
+                    AND capability.Turn = {[tt.Turn]}
+                    AND capability.Place = {[place]}
+                    AND capability.Capability = {[cap_id]})
 
 fun alive_player_ordering (gt : game_table) : transaction (list table_ordering_table) =
     queryL1 (SELECT table_ordering.*
@@ -374,14 +400,13 @@ fun previous_turn (tt : turn_table) : transaction (option turn_table) =
                     AND turn.Game = {[tt.Game]}
                     AND turn.Turn = {[tt.Turn - 1]})
 
-fun president_veto_turn (gt : game_table) (tt : turn_table) : transaction {} =
+fun president_veto_turn (tt : turn_table) : transaction {} =
     dml (INSERT INTO veto (Room, Game, Turn, President, Chancellor)
          VALUES ({[tt.Room]}
              , {[tt.Game]}
              , {[tt.Turn]}
              , {[tt.President]}
-             , {[tt.Chancellor]}));
-    send_public_message gt (GeneralRsp VetoEnacted)
+             , {[tt.Chancellor]}))
 
 (* TODO update option to result to model state of place not being in turn. *)
 fun possible_liberal (rt : room_table)

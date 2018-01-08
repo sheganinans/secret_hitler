@@ -1,9 +1,9 @@
 open Auth
 open Server_response
 
-fun eval_capability (room_id : int)
-                    (cap_id  : int)
-                    (arg : option capability_arg) : transaction {} =
+fun eval_capability (arg : option capability_arg)
+                    (room_id : int)
+                    (cap_id  : int) : transaction {} =
     pigot <- player_in_game_on_turn_exn room_id;
     let val (rt, gt, tt, ot) = (pigot.Room, pigot.Game, pigot.Turn, pigot.TableOrder)
 
@@ -12,36 +12,33 @@ fun eval_capability (room_id : int)
         fun set_rule_set {} : transaction {} =
             case arg of
                 Some (RuleSetArg rs) =>
-                send_public_message gt (GeneralRsp (RuleSet rs))
+                send_public_message gt (PublicRsp (RuleSet rs))
               | _ => return {}
 
         fun start_game {} : transaction {} = return {}
 
         fun choose_chancellor (chan_id : int) : transaction {} =
             submit_chancellor tt chan_id;
-            send_public_message gt (GeneralRsp (ChancellorChosen chan_id))
+            send_public_message gt (PublicRsp (ChancellorChosen chan_id))
 
-        fun discard (p : card) : transaction {} =
+        fun discard_policy (p : card) : transaction {} =
             submit_discard tt p;
-            send_public_message gt (GeneralRsp PresidentDiscard)
+            send_public_message gt (PublicRsp PresidentDiscard)
 
         fun enact_policy (c : card) : transaction {} =
-            let fun from_bool (b : bool) : side = if b then Liberal else Fascist
-
-                val chosen_policy : side = from_bool (case c of
-                                                          Fst => tt.Fst
-                                                        | Snd => tt.Snd
-                                                        | Trd => tt.Trd)
+            let val chosen_policy : side =
+                    side_from_bool (case c of Fst => tt.Fst
+                                            | Snd => tt.Snd
+                                            | Trd => tt.Trd)
             in
-                send_public_message gt (GeneralRsp (PolicyPassed chosen_policy))
+                send_public_message gt (PublicRsp (PolicyPassed chosen_policy))
             end
 
         fun eval_vote (v : option bool) : transaction {} =
             vote_o <- does_vote_exist_for tt ot.Place;
-            (case vote_o of
-                 None   =>    new_vote tt ot.Place v
-               | Some _ => update_vote tt ot.Place v);
-            send_public_message gt (GeneralRsp (VoteState { Place = ot.Place
+            (case vote_o of None   =>    new_vote
+                          | Some _ => update_vote) tt ot.Place v;
+            send_public_message gt (PublicRsp (VoteState { Place = ot.Place
                                                           , State = Option.isSome vote_o }))
 
         fun eval_exec_action (a : Types.exec_action) : transaction {} =
@@ -55,39 +52,44 @@ fun eval_capability (room_id : int)
                         in  submit_loyalty_investigation tt place;
                             possible_liberal <- possible_liberal rt place;
                             (case possible_liberal of None   => is_a_fascist
-                                                    | Some _ => is_a_liberal) place;
-                            update_last_action gt
+                                                    | Some _ => is_a_liberal) place
                         end
+
                     fun call_special_election (place : int) : transaction {} =
                         return {}
+
                     fun execute_player (place : int) : transaction {} =
-                        kill_player tt ot.Place
+                        kill_player tt place;
+                        send_public_message gt (PublicRsp (PlayerExecuted place))
+
                     fun president_veto {} : transaction {} =
-                        president_veto_turn gt tt
-                    fun reject_veto {} : transaction {} = return {}
+                        president_veto_turn tt;
+                        send_public_message gt (PublicRsp VetoEnacted)
+
+                    fun reject_veto {} : transaction {} =
+                        chancellor_ordering <- player_at_table tt tt.Chancellor;
+                        chancellor_in_game <-
+                            player_connection_in_game tt
+                                                      chancellor_ordering.InGameId;
+                        send chancellor_in_game.Chan (ChancellorRsp VetoRejected)
+
                 in  case a of
                         InvestigateLoyalty  place => investigate_loyalty   place
                       | CallSpecialElection place => call_special_election place
                       | ExecutePlayer       place => execute_player        place
-                      | Veto                      => president_veto {}
-                      | RejectVeto                => return {}
+                      |       Veto                => president_veto {}
+                      | RejectVeto                =>    reject_veto {}
                 end
 
         fun run_timed (a : timed_action) : transaction {} =
             update_last_action gt;
             case a of
                 ChooseChancellor c => choose_chancellor c
-              | DiscardPolicy    p => discard p
-              |   EnactPolicy    p => enact_policy p
+              | DiscardPolicy    p => discard_policy p
+              |   EnactPolicy    p =>   enact_policy p
               | ExecutiveAction ea => eval_exec_action ea
 
-    in  capability_o <- oneOrNoRows1 (SELECT *
-                                      FROM capability
-                                      WHERE capability.Room = {[tt.Room]}
-                                        AND capability.Game = {[tt.Game]}
-                                        AND capability.Turn = {[tt.Turn]}
-                                        AND capability.Place = {[ot.Place]}
-                                        AND capability.Capability = {[cap_id]});
+    in  capability_o <- get_capability tt ot.Place cap_id;
         case capability_o of
             None => return {}
           | Some cap =>
