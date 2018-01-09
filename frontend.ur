@@ -3,16 +3,12 @@ open Protocol
 open Tables
 open Utils
 
-
-fun select_rooms_controlled {} : transaction (list room_table) =
-    pt <- check_role Player;
-    rl_1 <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
-    rl_2 <- queryL1 (SELECT room.*
-                     FROM (room
-                         INNER JOIN mod
-                         ON room.Room   = mod.Room
-                         AND mod.Player = {[pt.Player]}));
-    return (List.append rl_1 rl_2)
+fun on_load {} : transaction {} =
+    me <- self;
+    chan <- oneRow1 (SELECT player_in_game.Chan
+                     FROM player_in_game
+                     WHERE player_in_game.Client = {[me]});
+    return {}
 
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
@@ -265,89 +261,112 @@ and join_room (room_id : int) : transaction page =
                 </table></form></body></xml>
     end
 
-and join_game (room_id : int) : transaction page =
-    let fun submit_join_game (room_id : int)
-                             (playing : { Playing : bool }) : transaction page =
-            (pt, rt) <- player_in_room_exn room_id;
-            gt_o <- oneOrNoRows1 (SELECT *
-                                  FROM game
-                                  WHERE game.Game = {[rt.CurrentGame]});
-            (case gt_o of
-                None => return {}
-              | Some gt =>
-                me <- self;
-                chan <- channel;
-                num_in_game <- oneRowE1 (SELECT COUNT ( * )
-                                         FROM player_in_game
-                                         WHERE player_in_game.Room = {[rt.Room]}
-                                           AND player_in_game.Game = {[rt.CurrentGame]});
-                dml (INSERT INTO player_in_game
-                       ( Room
-                         , Game
-                         , Player
-                         , Client
-                         , Chan
-                         , Watching
-                         , InGameId )
-                     VALUES
-                       ( {[rt.Room]}
-                         , {[rt.CurrentGame]}
-                         , {[pt.Player]}
-                         , {[me]}
-                         , {[chan]}
-                         , {[if rt.InGame then True else not playing.Playing]}
-                         , {[num_in_game + 1]} )));
-            view_room room_id
-
-    in  (pt, rt) <- player_in_room_exn room_id;
-        if rt.InGame
-        then submit_join_game room_id {Playing = False}
-        else return <xml><body><form><table>
-                      <tr><th>Playing?</th><td><checkbox{#Playing}/></td></tr>
-                      <tr><submit action={submit_join_game room_id}/></tr>
-                    </table></form></body></xml>
-    end
-
 and chat (chat_id : int) : transaction xbody =
     return <xml></xml>
 
 and view_room (room_id : int) : transaction page =
     (pt, rt) <- only_if_player_not_kicked_exn room_id;
-    rp_o <- oneOrNoRows1 (SELECT *
-                          FROM room_player
-                          WHERE room_player.Player = {[pt.Player]}
-                            AND room_player.Room   = {[rt.Room]});
-    case rp_o of
-        None   => join_room room_id
-      | Some _ =>
-        (gs : source private_game_state)
-            <- source { PublicGameState =
-                        { CurrentTurn =
-                          { President       = 0
-                          , Chancellor      = 0
-                          , FascistPolicies = 0
-                          , LiberalPolicies = 0
-                          }
-                        , GameHistory = []
-                        , ChatHistory = []
-                        , Players     = []
-                        }
-                      , GameRole          = Watcher
-                      , KnownAffiliations = []
-                      , Top3CardsInDraw   = []
-                      };
+    let fun join_game {} : transaction page =
+            let fun submit_join_game (playing : { Playing : bool }) : transaction page =
 
-        let fun no_game_yet {} : transaction xbody = return <xml></xml>
+                    gt_o <- oneOrNoRows1 (SELECT *
+                                          FROM game
+                                          WHERE game.Game = {[rt.CurrentGame]});
+                    (case gt_o of
+                         None => return {}
+                       | Some gt =>
+                         me <- self;
+                         chan <- channel;
+                         num_in_game <- number_of_players_in_room_for_game rt;
+                         add_player_to_game rt pt me chan playing.Playing num_in_game);
+                    view_room room_id
 
-            fun join_game_view {} : transaction xbody = return <xml></xml>
+            in  if rt.InGame
+                then submit_join_game {Playing = False}
+                else return <xml><body><form><table>
+                  <tr><th>Playing?</th><td><checkbox{#Playing}/></td></tr>
+                  <tr><submit action={submit_join_game}/></tr>
+                </table></form></body></xml>
+            end
 
-        in  player_list <- get_all_un_and_id_in_room room_id;
-            return <xml><body onload={return {}}><table>
-              <tr><th>View Room {[show rt.Nam]}</th></tr>
-              {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
-                         player_list}
-            </table></body></xml>
-        end
+    in  rp_o <- oneOrNoRows1 (SELECT *
+                              FROM room_player
+                              WHERE room_player.Player = {[pt.Player]}
+                                AND room_player.Room   = {[rt.Room]});
+        case rp_o of
+            None   => join_room room_id
+          | Some _ =>
+            (rs : source (option rule_set)) <- source None;
+
+            (gs : source private_game_state)
+                <- source { PublicGameState =
+                            { CurrentTurn =
+                              { President       = 0
+                              , Chancellor      = 0
+                              , FascistPolicies = 0
+                              , LiberalPolicies = 0
+                              }
+                            , GameHistory = []
+                            , ChatHistory = []
+                            , Players     = []
+                            }
+                          , GameRole          = Watcher
+                          , KnownAffiliations = []
+                          , Top3CardsInDraw   = []
+                          };
+
+            (vs : source (option (list {Place : int, Vote : bool}))) <- source None;
+
+            let fun no_game_yet {} : transaction xbody = return <xml></xml>
+
+                fun join_game_view {} : transaction xbody = return <xml></xml>
+
+                fun public_rsp_handler (rsp : Protocol.public_response) : transaction {} =
+                    case rsp of
+                        _ => return {}
+
+                fun private_rsp_handler (rsp : Protocol.private_response) : transaction {} =
+                    case rsp of
+                        _ => return {}
+
+                fun client_handler (msg : Protocol.in_game_response) : transaction {} =
+                    let
+                    in  case msg of
+                            PublicRsp rsp => public_rsp_handler rsp
+                          | PrivateRsp rsp => private_rsp_handler rsp
+                    end
+
+                fun display_vote_state {} : transaction xbody =
+                    return <xml></xml>
+
+            in  player_list <- get_all_un_and_id_in_room room_id;
+                pig <- oneOrNoRows1 (SELECT *
+                                     FROM player_in_game
+                                     WHERE player_in_game.Room = {[rt.Room]}
+                                       AND player_in_game.Game = {[rt.CurrentGame]}
+                                       AND player_in_game.Player = {[pt.Player]});
+                case pig of
+                    None => join_game {}
+                  | Some pig =>
+                    chan <- channel;
+                    dml (UPDATE player_in_game
+                         SET Chan = {[chan]}
+                         WHERE Room = {[rt.Room]}
+                           AND Game = {[rt.CurrentGame]}
+                           AND Player = {[pt.Player]});
+                    return <xml><body onload={let fun loop {} =
+                                                      msg <- recv chan;
+                                                      client_handler msg;
+                                                      loop {}
+                                              in rpc (on_load {});
+                                                 loop {}
+                                              end}><table>
+                      <tr><th>View Room {[show rt.Nam]}</th></tr>
+                      {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
+                                 player_list}
+                    </table></body></xml>
+            end
+    end
 
 and start_game (room_id : int) : transaction page =
     (pt, rt) <- only_if_owner_mod_exn room_id;
@@ -355,16 +374,17 @@ and start_game (room_id : int) : transaction page =
                             FROM player_in_game
                             WHERE player_in_game.Room = {[rt.Room]}
                               AND player_in_game.Game = {[rt.CurrentGame]});
+
     let val in_game_players = List.filter (fn p => not p.Watching) player_list
         val in_game_players_l = List.length in_game_players
         val get_pid = get_player_from_in_game_id rt
+
     in  (case List.find (fn (k,_) => k = in_game_players_l) player_numbers_table of
              None    => return {}
            | Some (_, lf) =>
              in_game_players <- Utils.shuffle in_game_players;
 
-             mapM_ (fn (i,p) => dml (INSERT INTO table_ordering
-                                       (Room, Game, InGameId, Place)
+             mapM_ (fn (i,p) => dml (INSERT INTO table_ordering (Room, Game, InGameId, Place)
                                      VALUES
                                        ( {[rt.Room]}
                                          , {[rt.CurrentGame]}
@@ -407,6 +427,7 @@ and start_game (room_id : int) : transaction page =
                                           , FascistsInDraw = number_of_fascist_policies
                                           , LiberalsInDisc = 0
                                           , FascistsInDisc = 0 };
+
              dml (INSERT INTO turn
                     ( Room
                       , Game
@@ -474,6 +495,7 @@ and start_game (room_id : int) : transaction page =
                   SET CurrentTurn = 1
                   WHERE Room = {[rt.Room]}
                     AND Game = {[rt.CurrentGame]}));
+
         view_room room_id
     end
 

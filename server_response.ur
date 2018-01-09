@@ -10,7 +10,7 @@ fun enact_skip_turn_or_kill (gt : game_table)
     else skip_turn gt
 
 fun send_punished_list (gt : game_table) (l : list int) : transaction {} =
-    send_public_message gt (PublicRsp (PlayersPunished l))
+    send_public_message gt (PlayersPunished l)
 
 fun punish_president (gt : game_table) : transaction {} =
     enact_skip_turn_or_kill gt (fn tt =>
@@ -41,7 +41,7 @@ fun vote_failed (gt : game_table) : transaction {} =
     tt <- current_turn_state gt;
     incr_reject_counter tt;
     let val state = if tt.RejectCount = 2 then InChaos else Failed
-    in  send_public_message gt (PublicRsp (NewGovt state));
+    in  send_public_message gt (NewGovt state);
         (case state of
              InChaos => govt_in_chaos gt
            | Failed  =>     skip_turn gt
@@ -85,7 +85,7 @@ fun winners (gt : game_table) (winners : side) : transaction {} =
     case game_end_state_o of
         None => return {}
       | Some game_end_state =>
-        send_public_message gt (PublicRsp (GameEndState game_end_state))
+        send_public_message gt (GameEndState game_end_state)
 
 fun liberals_win (gt : game_table) : transaction {} = winners gt Liberal
 

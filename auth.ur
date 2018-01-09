@@ -119,4 +119,15 @@ fun player_in_game_on_turn_exn (room_id : int)
     return { Player = pt, Room = rt, Game =  gt, Conn = pc, TableOrder =  ot, Turn = tt }
 
 
+fun select_rooms_controlled {} : transaction (list room_table) =
+    pt <- check_role Player;
+    rl_1 <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
+    rl_2 <- queryL1 (SELECT room.*
+                     FROM (room
+                         INNER JOIN mod
+                         ON room.Room   = mod.Room
+                         AND mod.Player = {[pt.Player]}));
+    return (List.append rl_1 rl_2)
+
+
 fun basic_hash pw = crypt pw "TheReallyBasicHashSecretForPasswordsForSecretDio"

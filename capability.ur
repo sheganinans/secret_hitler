@@ -12,18 +12,18 @@ fun eval_capability (arg : option capability_arg)
         fun set_rule_set {} : transaction {} =
             case arg of
                 Some (RuleSetArg rs) =>
-                send_public_message gt (PublicRsp (RuleSet rs))
+                send_public_message gt (RuleSet rs)
               | _ => return {}
 
         fun start_game {} : transaction {} = return {}
 
         fun choose_chancellor (chan_id : int) : transaction {} =
             submit_chancellor tt chan_id;
-            send_public_message gt (PublicRsp (ChancellorChosen chan_id))
+            send_public_message gt (ChancellorChosen chan_id)
 
         fun discard_policy (p : card) : transaction {} =
             submit_discard tt p;
-            send_public_message gt (PublicRsp PresidentDiscard)
+            send_public_message gt PresidentDiscard
 
         fun enact_policy (c : card) : transaction {} =
             let val chosen_policy : side =
@@ -31,15 +31,15 @@ fun eval_capability (arg : option capability_arg)
                                             | Snd => tt.Snd
                                             | Trd => tt.Trd)
             in
-                send_public_message gt (PublicRsp (PolicyPassed chosen_policy))
+                send_public_message gt (PolicyPassed chosen_policy)
             end
 
         fun eval_vote (v : option bool) : transaction {} =
             vote_o <- does_vote_exist_for tt ot.Place;
             (case vote_o of None   =>    new_vote
                           | Some _ => update_vote) tt ot.Place v;
-            send_public_message gt (PublicRsp (VoteState { Place = ot.Place
-                                                          , State = Option.isSome vote_o }))
+            send_public_message gt (VoteState { Place = ot.Place
+                                              , State = Option.isSome vote_o })
 
         fun eval_exec_action (a : Types.exec_action) : transaction {} =
             if current_step <> ExecActionStep then return {}
@@ -60,18 +60,16 @@ fun eval_capability (arg : option capability_arg)
 
                     fun execute_player (place : int) : transaction {} =
                         kill_player tt place;
-                        send_public_message gt (PublicRsp (PlayerExecuted place))
+                        send_public_message gt (PlayerExecuted place)
 
                     fun president_veto {} : transaction {} =
                         president_veto_turn tt;
-                        send_public_message gt (PublicRsp VetoEnacted)
+                        send_public_message gt VetoEnacted
 
                     fun reject_veto {} : transaction {} =
-                        chancellor_ordering <- player_at_table tt tt.Chancellor;
-                        chancellor_in_game <-
-                            player_connection_in_game tt
-                                                      chancellor_ordering.InGameId;
-                        send chancellor_in_game.Chan (ChancellorRsp VetoRejected)
+                        chanc_ord <- player_at_table tt tt.Chancellor;
+                        chancellor_in_game <- player_connection_in_game tt chanc_ord.InGameId;
+                        send chancellor_in_game.Chan (PrivateRsp (ChancellorRsp VetoRejected))
 
                 in  case a of
                         InvestigateLoyalty  place => investigate_loyalty   place
@@ -85,8 +83,8 @@ fun eval_capability (arg : option capability_arg)
             update_last_action gt;
             case a of
                 ChooseChancellor c => choose_chancellor c
-              | DiscardPolicy    p => discard_policy p
-              |   EnactPolicy    p =>   enact_policy p
+              |    DiscardPolicy p =>    discard_policy p
+              |      EnactPolicy p =>      enact_policy p
               | ExecutiveAction ea => eval_exec_action ea
 
     in  capability_o <- get_capability tt ot.Place cap_id;
@@ -94,8 +92,12 @@ fun eval_capability (arg : option capability_arg)
             None => return {}
           | Some cap =>
             case deserialize cap.Action of
-                SetRuleSet   => set_rule_set {}
-              | StartGame    => start_game {}
-              | Vote       v => eval_vote v
-              | Timed      a => run_timed a
+                RoomAction a =>
+                (case a of
+                     SetRuleSet => set_rule_set {}
+                   | StartGame  => start_game {})
+              | GameAction a =>
+                (case a of
+                     Vote  v => eval_vote v
+                   | Timed a => run_timed a)
     end

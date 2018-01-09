@@ -57,9 +57,13 @@ datatype step
 datatype card = Fst | Snd | Trd
 
 datatype action
+  = RoomAction of room_action
+  | GameAction of game_action
+and room_action
   = SetRuleSet
   | StartGame
-  | Vote       of option bool
+and game_action
+  = Vote       of option bool
   | Timed      of timed_action
 and timed_action
   = ChooseChancellor of int
@@ -88,9 +92,9 @@ type player_id_and_username = { Player : int, Username : string }
 
 (* Result Type *)
 
-datatype result ok err =
-     | Ok  of ok
-     | Err of err
+datatype result ok err
+  = Ok  of ok
+  | Err of err
 
 (* Type Synonyms *)
 

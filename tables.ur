@@ -353,6 +353,36 @@ fun players_in_game (gt : game_table) : transaction (list player_connection) =
              WHERE player_in_game.Room = {[gt.Room]}
                AND player_in_game.Game = {[gt.Game]})
 
+fun number_of_players_in_room_for_game (rt : room_table) : transaction int =
+    oneRowE1
+        (SELECT COUNT ( * )
+         FROM player_in_game
+         WHERE player_in_game.Room = {[rt.Room]}
+           AND player_in_game.Game = {[rt.CurrentGame]})
+
+fun add_player_to_game (rt : room_table)
+                       (pt : player_table)
+                       (me)
+                       (chan)
+                       (playing : bool)
+                       (num_in_game : int) : transaction {} =
+    dml (INSERT INTO player_in_game
+           ( Room
+             , Game
+             , Player
+             , Client
+             , Chan
+             , Watching
+             , InGameId )
+         VALUES
+           ( {[rt.Room]}
+             , {[rt.CurrentGame]}
+             , {[pt.Player]}
+             , {[me]}
+             , {[chan]}
+             , {[if rt.InGame then True else not playing]}
+             , {[num_in_game + 1]} ))
+
 fun player_at_table (tt : turn_table) (place : int) : transaction (table_ordering_table) =
     oneRow1 (SELECT *
              FROM table_ordering
@@ -368,9 +398,9 @@ fun player_connection_in_game (tt : turn_table)
                AND player_in_game.Game = {[tt.Game]}
                AND player_in_game.InGameId = {[in_game_id]})
 
-fun send_public_message (gt : game_table) (msg : in_game_response) : transaction {} =
+fun send_public_message (gt : game_table) (msg : public_response) : transaction {} =
     player_list <- players_in_game gt;
-    mapM_ (fn p => send p.Chan msg) player_list
+    mapM_ (fn p => send p.Chan (PublicRsp msg)) player_list
 
 fun get_capability (tt : turn_table)
                    (place : int)

@@ -16,7 +16,10 @@ type public_game_state_t
   = [ CurrentTurn =      govt_state
     , GameHistory = list govt_state
     , ChatHistory = list chat_contents
-    , Players     = list { Player : int, Username : string }
+    , Players     = list { Player   : int
+                         , Username : string
+                         , Alive    : bool
+                         }
     ]
 
 type public_game_state = $public_game_state_t
@@ -39,10 +42,12 @@ datatype game_role
   | Fascist of { Hitler : int, Fascists : list int }
   | Watcher
 
+type affiliations = list { Player : int, Side : side }
+
 type private_game_state_t
   = [ PublicGameState   = public_game_state
     , GameRole          = game_role
-    , KnownAffiliations = list { Player : int, Side : side }
+    , KnownAffiliations = affiliations
     , Top3CardsInDraw   = list { Turn : int, Cards : bool * bool * bool }
     ]
 
@@ -56,16 +61,15 @@ type side_cap = { Capability : int, Side : side }
 
 (* Server response *)
 datatype in_game_response
-  = TurnRole      of turn_role
-  |     PublicRsp of     public_response
-  |  PresidentRsp of  president_response
-  | ChancellorRsp of chancellor_response
+  = PublicRsp  of  public_response
+  | PrivateRsp of private_response
 
 and public_response
   = Chat             of chat_contents
   | RuleSet          of rule_set
   | PublicGameState  of public_game_state
   | NewTurn          of govt_state
+  | TurnRole         of turn_role
   | ChancellorChosen of int
   | VoteState        of { Place : int, State : bool }
   | NewGovt          of new_govt
@@ -77,12 +81,27 @@ and public_response
   | VetoEnacted
   | GameEndState     of game_end_state
 
+and private_response
+  =      VoterRsp of      voter_response
+  |  PresidentRsp of  president_response
+  | ChancellorRsp of chancellor_response
+  |    FascistRsp of    fascist_response
+
+and voter_response
+    = VoteCapability of int
+
 and president_response
-  = DiscardCard   of side_cap * side_cap * side_cap
-  | LoyaltyInvest of { Player : int, Side : side }
-  | PolicyPeek    of side * side * side
+  = SelectCandidate of list { Nam : string, Cap : int }
+  | DiscardCard     of side_cap * side_cap * side_cap
+  | LoyaltyInvestig of { Player : int, Side : side }
+  | PolicyPeek      of side * side * side
   | VetoProposed
 
 and chancellor_response
-  = Policies of side_cap * side_cap
+  = Policies of { One     : side_cap
+                , Two     : side_cap
+                , VetoCap : option int }
   | VetoRejected
+
+and fascist_response
+    = Affiliations of affiliations
