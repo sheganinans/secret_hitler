@@ -61,7 +61,6 @@ type game_id_t = [ Game = int, Room = int ]
 
 type game_table_t
   = game_id_t
-  ++ rule_set_t
   ++ [ CurrentTurn = int
      , GameStarted = time
      , LastAction  = time
@@ -72,6 +71,15 @@ type game_table = $game_table_t
 table game :
       game_table_t PRIMARY KEY (Room, Game)
     , CONSTRAINT HasRoom FOREIGN KEY Room REFERENCES room (Room)
+
+type rule_set_table_t =
+     game_id_t ++ rule_set_t
+
+type rule_set_table = $rule_set_table_t
+
+table rule_set :
+      rule_set_table_t PRIMARY KEY (Room, Game)
+    , CONSTRAINT HasGame FOREIGN KEY (Game, Room) REFERENCES game (Game, Room)
 
 type in_game_id_per_game_t = [ InGameId = int ] ++ game_id_t
 
@@ -127,32 +135,26 @@ table hitler :
 
 type turn_id_t = game_id_t ++ [ Turn = int ]
 
-type game_flow_t
-  = [    ChancSelDone = bool
-    ,        VoteDone = bool
-    , HitlerCheckDone = bool
-    ,     DiscardDone = bool
-    ,    EnactionDone = bool
-    ,  ExecActionDone = bool
-    ]
+type current_step_t
+  = [ HitlerCheckDone = bool
+    , CurrentStep = serialized step ]
 
 type deck_state_t
   = [ LiberalsInDraw = int, FascistsInDraw = int
     , LiberalsInDisc = int, FascistsInDisc = int
-    , Fst = bool
-    , Snd = bool
-    , Trd = bool
+    , Fst = serialized side
+    , Snd = serialized side
+    , Trd = serialized side
     ]
 
 type game_state_t
-  = [ PresDisc     = int
-    , ChanEnac     = int
+  = [ PresDisc     = option (serialized card)
+    , ChanEnac     = option (serialized card)
     , NextPres     = int
-    , RejectCount  = int
     , VetoProposed = bool
     ]
 
-type turn_table_t = turn_id_t ++ game_flow_t ++ govt_state_t ++ deck_state_t ++ game_state_t
+type turn_table_t = turn_id_t ++ current_step_t ++ govt_state_t ++ deck_state_t ++ game_state_t
 
 type turn_table = $turn_table_t
 
@@ -177,33 +179,31 @@ table turn :
     , CONSTRAINT ChancellorIsPlayer FOREIGN KEY (Room, Game, Chancellor)
                  REFERENCES table_ordering (Room, Game, Place)
     , CONSTRAINT RejectCount CHECK RejectCount >= 0 AND RejectCount <= 3
-    , CONSTRAINT AllowedDisc CHECK PresDisc >= 0 AND PresDisc <= 3
-    , CONSTRAINT AllowedEnac CHECK ChanEnac >= 0 AND ChanEnac <= 3
-    , CONSTRAINT ChancSeldNotDummy     CHECK IF   ChancSelDone THEN Chancellor <> 0 ELSE TRUE
-    , CONSTRAINT ChancBeforeVote       CHECK IF       VoteDone THEN ChancSelDone ELSE TRUE
-    , CONSTRAINT VoteBeforeDisc        CHECK IF    DiscardDone THEN VoteDone ELSE TRUE
-    , CONSTRAINT DiscardNotDummy       CHECK IF    DiscardDone THEN PresDisc <> 0 ELSE TRUE
-    , CONSTRAINT DiscardBeforeEnaction CHECK IF   EnactionDone THEN DiscardDone ELSE TRUE
-    , CONSTRAINT EnactionNotDummy      CHECK IF   EnactionDone THEN ChanEnac <> 0 ELSE TRUE
-    , CONSTRAINT ExecActionAfterEnac   CHECK IF ExecActionDone THEN EnactionDone ELSE TRUE
-    , CONSTRAINT DrawDeckGTE0 CHECK LiberalsInDraw + FascistsInDraw >= 0
+    , CONSTRAINT AllowedEnac CHECK IF ChanEnac <> NULL THEN PresDisc <> NULL ELSE TRUE
+(*    , CONSTRAINT ChancSeldNotDummy CHECK IF CurrentStep = {[serialize VoteStep]}
+                                         THEN Chancellor <> 0 ELSE TRUE
+    , CONSTRAINT DiscardNotDummy   CHECK IF CurrentStep = {[serialize EnactStep]}
+                                         THEN PresDisc <> {[None]} ELSE TRUE
+    , CONSTRAINT EnactionNotDummy CHECK IF CurrentStep = {[serialize ExecActionStep]}
+                                         THEN ChanEnac <> NULL ELSE TRUE
+*)    , CONSTRAINT DrawDeckGTE0 CHECK LiberalsInDraw + FascistsInDraw >= 0
     , CONSTRAINT LibPolGTE0AndLTE5 CHECK LiberalPolicies >= 0 AND LiberalPolicies <= 5
     , CONSTRAINT FasPolGTE0AndLTE5 CHECK FascistPolicies >= 0 AND FascistPolicies <= 6
     , CONSTRAINT LiberalsUnchanging
           CHECK LiberalsInDraw
               + LiberalsInDisc
               + LiberalPolicies
-              + (IF Fst THEN 1 ELSE 0)
-              + (IF Snd THEN 1 ELSE 0)
-              + (IF Trd THEN 1 ELSE 0)
+              + (IF Fst = {[serialize Liberal]} THEN 1 ELSE 0)
+              + (IF Snd = {[serialize Liberal]} THEN 1 ELSE 0)
+              + (IF Trd = {[serialize Liberal]} THEN 1 ELSE 0)
               = {[number_of_liberal_policies]}
     , CONSTRAINT FascistsUnchanging
           CHECK FascistsInDraw
               + FascistsInDisc
               + FascistPolicies
-              + (IF NOT Fst THEN 1 ELSE 0)
-              + (IF NOT Snd THEN 1 ELSE 0)
-              + (IF NOT Trd THEN 1 ELSE 0)
+              + (IF Fst = {[serialize Fascist]} THEN 1 ELSE 0)
+              + (IF Snd = {[serialize Fascist]} THEN 1 ELSE 0)
+              + (IF Trd = {[serialize Fascist]} THEN 1 ELSE 0)
               = {[number_of_fascist_policies]}
 
 type capability_table_t
@@ -318,6 +318,15 @@ table group_chat :
     , CONSTRAINT HasChat FOREIGN KEY Chat REFERENCES chat (Chat)
     , CONSTRAINT InGroup FOREIGN KEY (Chat, Player) REFERENCES group_chat_relation (Chat, Player)
     , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
+
+fun get_rule_set [rest]
+                 [game_id_t ~ rest]
+                 (t : $(game_id_t ++ rest))
+    : transaction rule_set_table =
+    oneRow1 (SELECT *
+             FROM rule_set
+             WHERE rule_set.Room = {[t.Room]}
+               AND rule_set.Game = {[t.Game]})
 
 fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction { Player : int } =
     oneRow1 (SELECT player_in_game.Player
@@ -462,21 +471,19 @@ fun submit_chancellor (tt : turn_table)
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]});
     dml (UPDATE turn
-         SET ChancSelDone = TRUE
+         SET CurrentStep = {[serialize VoteStep]}
          WHERE Room = {[tt.Room]}
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]})
 
 fun submit_discard (tt : turn_table) (c : card) : transaction {} =
     dml (UPDATE turn
-         SET PresDisc = {[case c of Fst => 1
-                                  | Snd => 2
-                                  | Trd => 3]}
+         SET PresDisc = {[Some (serialize c)]}
          WHERE Room = {[tt.Room]}
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]});
     dml (UPDATE turn
-         SET DiscardDone = TRUE
+         SET CurrentStep = {[serialize EnactStep]}
          WHERE Room = {[tt.Room]}
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]})
@@ -536,7 +543,7 @@ fun reset_reject_counter (tt : turn_table) : transaction {} =
 
 fun vote_done (tt : turn_table) : transaction {} =
     dml (UPDATE turn
-         SET VoteDone = TRUE
+         SET CurrentStep = {[serialize DiscardStep]}
          WHERE Room = {[tt.Room]}
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]})
@@ -550,6 +557,7 @@ fun hitler_check_done (tt : turn_table) : transaction {} =
 
 fun skip_turn (gt : game_table) : transaction {} =
     current_turn <- current_turn_state gt;
+
     deck <- next_turn_deck_state { LiberalsInDraw = current_turn.LiberalsInDraw
                                  , FascistsInDraw = current_turn.FascistsInDraw
                                  , LiberalsInDisc = current_turn.LiberalsInDisc
@@ -563,12 +571,8 @@ fun skip_turn (gt : game_table) : transaction {} =
              , Chancellor
              , RejectCount
              , VetoProposed
-             ,    ChancSelDone
-             ,        VoteDone
              , HitlerCheckDone
-             ,     DiscardDone
-             ,    EnactionDone
-             ,  ExecActionDone
+             , CurrentStep
              , LiberalsInDraw
              , FascistsInDraw
              , LiberalsInDisc
@@ -590,33 +594,18 @@ fun skip_turn (gt : game_table) : transaction {} =
              , {[current_turn.RejectCount + 1]}
              , FALSE
              , FALSE
-             , FALSE
-             , FALSE
-             , FALSE
-             , FALSE
-             , FALSE
+             , {[serialize ChancellorSelectStep (*TODO incr*)]}
              , {[deck.LibDraw]}
              , {[deck.FasDraw]}
              , {[deck.LibDisc]}
              , {[deck.FasDisc]}
-             , {[deck.Fst]}
-             , {[deck.Snd]}
-             , {[deck.Trd]}
-             , 0
-             , 0
+             , {[serialize deck.Fst]}
+             , {[serialize deck.Snd]}
+             , {[serialize deck.Trd]}
+             , NULL
+             , NULL
              , {[current_turn.LiberalPolicies]}
              , {[current_turn.FascistPolicies]} ))
 
 fun current_step (tt : turn_table) : step =
-    if not tt.ChancSelDone
-    then ChancellorSelectStep
-    else
-        if not tt.VoteDone
-        then VoteStep
-        else
-            if not tt.DiscardDone
-            then DiscardStep
-            else
-                if not tt.EnactionDone
-                then EnactStep
-                else ExecActionStep
+    deserialize tt.CurrentStep

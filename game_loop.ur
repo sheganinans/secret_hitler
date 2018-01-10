@@ -3,24 +3,28 @@ open Tables
 
 fun game_loop (gt : game_table) =
     tt <- current_turn_state gt;
+    rs <- get_rule_set tt;
     now <- now;
     let fun if_action_overdue (delta : float) (action_f : transaction {}) : transaction {} =
-            if gt.TimedGame
+            if rs.TimedGame
             then
                 if addSeconds gt.LastAction (ceil (delta * 60.)) < now
                 then action_f
                 else return {}
             else return {}
+
+        val current_step = deserialize tt.CurrentStep
+
     in  if tt.LiberalPolicies = 5
         then liberals_win gt
         else
             if tt.FascistPolicies = 6
             then fascists_win gt
             else
-                if not tt.ChancSelDone
-                then if_action_overdue gt.ChanNomTime (punish_president gt)
+                if current_step = ChancellorSelectStep
+                then if_action_overdue rs.ChanNomTime (punish_president gt)
                 else
-                    if not tt.VoteDone
+                    if current_step = VoteStep
                     then
                         players <- players_in_game gt;
                         votes <- current_votes tt;
@@ -28,7 +32,7 @@ fun game_loop (gt : game_table) =
                             val no  = List.filter (fn v => v.Vote = Some False) votes
                         in  if (* TODO filter dead players *)
                                 List.length (List.append yes no) <> List.length players
-                            then if_action_overdue gt.GovVoteTime (punish_non_voters gt)
+                            then if_action_overdue rs.GovVoteTime (punish_non_voters gt)
                             else
                                 if List.length no >= List.length yes
                                 then vote_failed gt
@@ -48,14 +52,14 @@ fun game_loop (gt : game_table) =
                                  case hitler_o of
                                      None   => return {}
                                    | Some _ => fascists_win gt);
-                        if not tt.DiscardDone
-                        then if_action_overdue gt.PresDisTime (punish_president gt)
+                        if current_step = DiscardStep
+                        then if_action_overdue rs.PresDisTime (punish_president gt)
                         else
-                            if not tt.EnactionDone
-                            then if_action_overdue gt.ChanEnaTime (punish_chancellor gt)
+                            if current_step = EnactStep
+                            then if_action_overdue rs.ChanEnaTime (punish_chancellor gt)
                             else
-                                if not tt.ExecActionDone
-                                then if_action_overdue gt.ExecActTime (punish_president gt)
+                                if current_step = ExecActionStep
+                                then if_action_overdue rs.ExecActTime (punish_president gt)
                                 else return {}
     end
 

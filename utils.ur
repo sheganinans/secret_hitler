@@ -1,5 +1,45 @@
+open Types
+
 fun mapM_ [a] [b] (f : a -> transaction b) (x : list a) : transaction {} =
     _ <- List.mapM f x; return {}
+
+fun update [nm :: Name] [t ::: Type] [rest] [[nm = t] ~ rest]
+           (f : t -> t)
+           (r : $([nm = t] ++ rest))
+    : $([nm = t] ++ rest) = r -- nm ++ {nm = f r.nm}
+
+fun get_set [a] (sa : source a) (f : a -> a) : transaction {} =
+    s <- get sa;
+    set sa (f s)
+
+fun update_source_at [nm :: Name] [t ::: Type] [rest] [[nm = t] ~ rest]
+                     (f : t -> t)
+                     (s : source $([nm = t] ++ rest))
+    : transaction {} = get_set s (update [nm] f)
+
+fun update_source_at_2 [nm1 :: Name] [nm2 :: Name] [t ::: Type] [rest1] [rest2]
+                       [[nm2 = t] ~ rest2]
+                       [[nm1 = $([nm2 = t] ++ rest2)] ~ rest1]
+                       (f : t -> t)
+                       (s : source $([nm1 = $([nm2 = t] ++ rest2)] ++ rest1))
+    : transaction {} =
+    ss <- get s;
+    let val ssnm1 = ss.nm1
+    in  set s (ss -- nm1 ++ {nm1 = ssnm1 -- nm2 ++ {nm2 = f ssnm1.nm2}})
+    end
+
+fun update_source_at_3 [nm1 :: Name] [nm2 :: Name] [nm3 :: Name]
+                       [t ::: Type] [rest1] [rest2] [rest3]
+                       [[nm3 = t] ~ rest3]
+                       [[nm2 = $([nm3 = t] ++ rest3)] ~ rest2]
+                       [[nm1 = $([nm2 = $([nm3 = t] ++ rest3)] ++ rest2)] ~ rest1]
+                       (f : t -> t)
+                       (s : source $([nm1 = $([nm2 = $([nm3 = t] ++ rest3)] ++ rest2)] ++ rest1))
+    : transaction {} =
+    ss <- get s;
+    let val (ssnm1, ssnm2) = (ss.nm1, ss.nm1.nm2)
+    in  set s (ss -- nm1 ++ {nm1 = ssnm1 -- nm2 ++ {nm2 = ssnm2 -- nm3 ++ {nm3 = f ssnm2.nm3}}})
+    end
 
 fun fold_css (l : list css_class) : css_class = List.foldr (fn c s => classes c s) null l
 
@@ -58,7 +98,7 @@ fun new_lib_fasc_disc_ratio (top_3 : bool * bool * bool) (lib : int) (fasc : int
 
 fun next_turn_deck_state (current_turn : { LiberalsInDraw : int, FascistsInDraw : int
                                          , LiberalsInDisc : int, FascistsInDisc : int })
-    : transaction { Fst : bool, Snd : bool, Trd : bool
+    : transaction { Fst : side, Snd : side, Trd : side
                   , LibDraw : int, FasDraw : int
                   , LibDisc : int, FasDisc : int } =
     if current_turn.LiberalsInDraw + current_turn.FascistsInDraw < 3
@@ -69,7 +109,9 @@ fun next_turn_deck_state (current_turn : { LiberalsInDraw : int, FascistsInDraw 
                                               (fst, snd, trd)
                                               current_turn.LiberalsInDraw
                                               current_turn.FascistsInDraw
-          in  return { Fst = fst, Snd = snd, Trd = trd
+          in  return { Fst = side_from_bool fst
+                     , Snd = side_from_bool snd
+                     , Trd = side_from_bool trd
                      , LibDraw = lib_draw, FasDraw = fasc_draw
                      , LibDisc =        0, FasDisc =         0 }
           end)
@@ -83,7 +125,9 @@ fun next_turn_deck_state (current_turn : { LiberalsInDraw : int, FascistsInDraw 
                                               (fst, snd, trd)
                                               current_turn.LiberalsInDisc
                                               current_turn.FascistsInDisc
-          in return { Fst = fst, Snd = snd, Trd = trd
+          in return { Fst = side_from_bool fst
+                    , Snd = side_from_bool snd
+                    , Trd = side_from_bool trd
                     , LibDraw = lib_draw, FasDraw = fasc_draw
                     , LibDisc = lib_disc, FasDisc = fasc_disc }
           end)

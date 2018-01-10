@@ -7,6 +7,8 @@ fun bool_from_side (s : side) : bool = case s of
                                            Liberal => True
                                          | Fascist => False
 
+val side_eq : eq side = mkEq (fn a b => bool_from_side a = bool_from_side b)
+
 val number_of_fascist_policies = 11
 val number_of_liberal_policies = 6
 
@@ -39,6 +41,7 @@ type govt_state_t
     , Chancellor      = int
     , LiberalPolicies = int
     , FascistPolicies = int
+    , RejectCount     = int
     ]
 
 type govt_state = $govt_state_t
@@ -63,8 +66,8 @@ and room_action
   = SetRuleSet
   | StartGame
 and game_action
-  = Vote       of option bool
-  | Timed      of timed_action
+  = Vote  of option bool
+  | Timed of timed_action
 and timed_action
   = ChooseChancellor of int
   | DiscardPolicy    of card

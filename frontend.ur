@@ -134,13 +134,6 @@ and new_game {} : transaction page =
                 dml (INSERT INTO game
                        ( Room
                          , Game
-                         , TimedGame
-                         , KillPlayer
-                         , ChanNomTime
-                         , GovVoteTime
-                         , PresDisTime
-                         , ChanEnaTime
-                         , ExecActTime
                          , CurrentTurn
                          , GameStarted
                          , LastAction
@@ -148,13 +141,6 @@ and new_game {} : transaction page =
                      VALUES
                        ( {[rt.Room]}
                          , {[rt.CurrentGame]}
-                         , {[rule_set.TimedGame]}
-                         , {[rule_set.KillPlayer]}
-                         , {[rule_set.ChanNomTime]}
-                         , {[rule_set.GovVoteTime]}
-                         , {[rule_set.PresDisTime]}
-                         , {[rule_set.ChanEnaTime]}
-                         , {[rule_set.ExecActTime]}
                          , 0
                          , {[now]}
                          , {[now]}
@@ -305,6 +291,7 @@ and view_room (room_id : int) : transaction page =
                               , Chancellor      = 0
                               , FascistPolicies = 0
                               , LiberalPolicies = 0
+                              , RejectCount     = 0
                               }
                             , GameHistory = []
                             , ChatHistory = []
@@ -320,6 +307,13 @@ and view_room (room_id : int) : transaction page =
             let fun no_game_yet {} : transaction xbody = return <xml></xml>
 
                 fun join_game_view {} : transaction xbody = return <xml></xml>
+
+                fun add_to_chat (c : chat_contents) : transaction {} =
+                    update_source_at_2 [#PublicGameState]
+                                       [#ChatHistory]
+                                       (fn chat => List.append (c::[]) chat) gs
+
+                fun update_rule_set (r : rule_set) : transaction {} = set rs (Some r)
 
                 fun public_rsp_handler (rsp : Protocol.public_response) : transaction {} =
                     case rsp of
@@ -338,6 +332,19 @@ and view_room (room_id : int) : transaction page =
 
                 fun display_vote_state {} : transaction xbody =
                     return <xml></xml>
+
+                fun app_vote (vl_o : option (list vote_notif))
+                             (vn : vote_notif) : option (list vote_notif) =
+                    case vl_o of
+                        None    => Some (vn :: [])
+                      | Some vl => Some
+                                       (if List.exists (fn v => vn.Place = v.Place) vl
+                                        then List.mp
+                                                 (fn v => if v.Place = vn.Place
+                                                          then vn
+                                                          else v)
+                                                 vl
+                                        else vn :: vl)
 
             in  player_list <- get_all_un_and_id_in_room room_id;
                 pig <- oneOrNoRows1 (SELECT *
@@ -437,12 +444,8 @@ and start_game (room_id : int) : transaction page =
                       , Chancellor
                       , RejectCount
                       , VetoProposed
-                      ,    ChancSelDone
-                      ,        VoteDone
                       , HitlerCheckDone
-                      ,     DiscardDone
-                      ,    EnactionDone
-                      ,  ExecActionDone
+                      , CurrentStep
                       , LiberalsInDraw
                       , FascistsInDraw
                       , LiberalsInDisc
@@ -464,20 +467,16 @@ and start_game (room_id : int) : transaction page =
                       , 0
                       , FALSE
                       , FALSE
-                      , FALSE
-                      , FALSE
-                      , FALSE
-                      , FALSE
-                      , FALSE
+                      , {[serialize ChancellorSelectStep (* TODO incr *)]}
                       , {[deck.LibDraw]}
                       , {[deck.FasDraw]}
                       , 0
                       , 0
-                      , {[deck.Fst]}
-                      , {[deck.Snd]}
-                      , {[deck.Trd]}
-                      , 0
-                      , 0
+                      , {[serialize deck.Fst]}
+                      , {[serialize deck.Snd]}
+                      , {[serialize deck.Trd]}
+                      , NULL
+                      , NULL
                       , 0
                       , 0 ));
 

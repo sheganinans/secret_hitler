@@ -20,8 +20,8 @@ $/option
 bootstrap/bootstrap
 bootstrap/bootstrap3
 consts
-utils
 types
+utils
 protocol
 tables
 instances

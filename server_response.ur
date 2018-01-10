@@ -5,7 +5,8 @@ open Utils
 
 fun enact_skip_turn_or_kill (gt : game_table)
                             (kill_f : turn_table -> transaction {}) : transaction {} =
-    if gt.KillPlayer
+    rs <- get_rule_set gt;
+    if rs.KillPlayer
     then turn <- current_turn_state gt; kill_f turn
     else skip_turn gt
 

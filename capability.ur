@@ -8,38 +8,38 @@ fun eval_capability (arg : option capability_arg)
     let val (rt, gt, tt, ot) = (pigot.Room, pigot.Game, pigot.Turn, pigot.TableOrder)
 
         val current_step = current_step tt
+        val send_public_message = send_public_message gt
 
         fun set_rule_set {} : transaction {} =
             case arg of
                 Some (RuleSetArg rs) =>
-                send_public_message gt (RuleSet rs)
+                send_public_message (RuleSet rs)
               | _ => return {}
 
         fun start_game {} : transaction {} = return {}
 
         fun choose_chancellor (chan_id : int) : transaction {} =
             submit_chancellor tt chan_id;
-            send_public_message gt (ChancellorChosen chan_id)
+            send_public_message (ChancellorChosen chan_id)
 
         fun discard_policy (p : card) : transaction {} =
             submit_discard tt p;
-            send_public_message gt PresidentDiscard
+            send_public_message PresidentDiscard
 
         fun enact_policy (c : card) : transaction {} =
-            let val chosen_policy : side =
-                    side_from_bool (case c of Fst => tt.Fst
-                                            | Snd => tt.Snd
-                                            | Trd => tt.Trd)
+            let val chosen_policy : side = deserialize (case c of Fst => tt.Fst
+                                                                | Snd => tt.Snd
+                                                                | Trd => tt.Trd)
             in
-                send_public_message gt (PolicyPassed chosen_policy)
+                send_public_message (PolicyPassed chosen_policy)
             end
 
         fun eval_vote (v : option bool) : transaction {} =
             vote_o <- does_vote_exist_for tt ot.Place;
             (case vote_o of None   =>    new_vote
                           | Some _ => update_vote) tt ot.Place v;
-            send_public_message gt (VoteState { Place = ot.Place
-                                              , State = Option.isSome vote_o })
+            send_public_message (VoteNotif { Place = ot.Place
+                                           , Vote = Option.isSome vote_o })
 
         fun eval_exec_action (a : Types.exec_action) : transaction {} =
             if current_step <> ExecActionStep then return {}
@@ -60,11 +60,11 @@ fun eval_capability (arg : option capability_arg)
 
                     fun execute_player (place : int) : transaction {} =
                         kill_player tt place;
-                        send_public_message gt (PlayerExecuted place)
+                        send_public_message (PlayerExecuted place)
 
                     fun president_veto {} : transaction {} =
                         president_veto_turn tt;
-                        send_public_message gt VetoEnacted
+                        send_public_message VetoEnacted
 
                     fun reject_veto {} : transaction {} =
                         chanc_ord <- player_at_table tt tt.Chancellor;

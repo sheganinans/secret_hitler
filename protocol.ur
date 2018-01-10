@@ -59,6 +59,8 @@ datatype new_govt = Passed | Failed | InChaos
 
 type side_cap = { Capability : int, Side : side }
 
+type vote_notif = { Place : int, Vote : bool }
+
 (* Server response *)
 datatype in_game_response
   = PublicRsp  of  public_response
@@ -71,7 +73,7 @@ and public_response
   | NewTurn          of govt_state
   | TurnRole         of turn_role
   | ChancellorChosen of int
-  | VoteState        of { Place : int, State : bool }
+  | VoteNotif        of vote_notif
   | NewGovt          of new_govt
   | PresidentDiscard
   | PolicyPassed     of side
@@ -100,7 +102,8 @@ and president_response
 and chancellor_response
   = Policies of { One     : side_cap
                 , Two     : side_cap
-                , VetoCap : option int }
+                , VetoCap : option int
+                }
   | VetoRejected
 
 and fascist_response
