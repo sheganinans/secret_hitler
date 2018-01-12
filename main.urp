@@ -29,7 +29,6 @@ error_page
 head
 auth
 server_response
-capability
 frontend
 game_loop
 main

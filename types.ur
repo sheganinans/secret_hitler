@@ -78,11 +78,17 @@ and exec_action
   = InvestigateLoyalty  of int
   | CallSpecialElection of int
   | ExecutePlayer       of int
-  | Veto
+  | ProposeVeto
   | RejectVeto
+  | Veto
 
 datatype capability_arg
   = RuleSetArg of rule_set
+
+type current_decks_t
+  = [ LiberalsInDraw = int, FascistsInDraw = int
+    , LiberalsInDisc = int, FascistsInDisc = int
+    ]
 
 (* Auth Types *)
 

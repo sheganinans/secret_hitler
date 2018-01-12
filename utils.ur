@@ -96,35 +96,36 @@ fun new_lib_fasc_draw_ratio (top_3 : bool * bool * bool) (lib : int) (fasc : int
 fun new_lib_fasc_disc_ratio (top_3 : bool * bool * bool) (lib : int) (fasc : int) : int * int =
     new_lib_fasc_ratio minus top_3                        lib         fasc
 
-fun next_turn_deck_state (current_turn : { LiberalsInDraw : int, FascistsInDraw : int
-                                         , LiberalsInDisc : int, FascistsInDisc : int })
+fun next_turn_deck_state [rest]
+                         [current_decks_t ~ rest]
+                         (current_decks : $(current_decks_t ++ rest))
     : transaction { Fst : side, Snd : side, Trd : side
                   , LibDraw : int, FasDraw : int
                   , LibDisc : int, FasDisc : int } =
-    if current_turn.LiberalsInDraw + current_turn.FascistsInDraw < 3
+    if current_decks.LiberalsInDraw + current_decks.FascistsInDraw < 3
     then ((fst, snd, trd) <- generate_top_3_cards
-                                 (current_turn.LiberalsInDraw + current_turn.LiberalsInDisc)
-                                 (current_turn.FascistsInDraw + current_turn.FascistsInDisc);
+                                 (current_decks.LiberalsInDraw + current_decks.LiberalsInDisc)
+                                 (current_decks.FascistsInDraw + current_decks.FascistsInDisc);
           let val (lib_draw, fasc_draw) = new_lib_fasc_draw_ratio
                                               (fst, snd, trd)
-                                              current_turn.LiberalsInDraw
-                                              current_turn.FascistsInDraw
+                                              current_decks.LiberalsInDraw
+                                              current_decks.FascistsInDraw
           in  return { Fst = side_from_bool fst
                      , Snd = side_from_bool snd
                      , Trd = side_from_bool trd
                      , LibDraw = lib_draw, FasDraw = fasc_draw
                      , LibDisc =        0, FasDisc =         0 }
           end)
-    else ((fst, snd, trd) <- generate_top_3_cards current_turn.LiberalsInDraw
-                                                  current_turn.FascistsInDraw;
+    else ((fst, snd, trd) <- generate_top_3_cards current_decks.LiberalsInDraw
+                                                  current_decks.FascistsInDraw;
           let val (lib_draw, fasc_draw) = new_lib_fasc_draw_ratio
                                               (fst, snd, trd)
-                                              current_turn.LiberalsInDraw
-                                              current_turn.FascistsInDraw
+                                              current_decks.LiberalsInDraw
+                                              current_decks.FascistsInDraw
               val (lib_disc, fasc_disc) = new_lib_fasc_disc_ratio
                                               (fst, snd, trd)
-                                              current_turn.LiberalsInDisc
-                                              current_turn.FascistsInDisc
+                                              current_decks.LiberalsInDisc
+                                              current_decks.FascistsInDisc
           in return { Fst = side_from_bool fst
                     , Snd = side_from_bool snd
                     , Trd = side_from_bool trd

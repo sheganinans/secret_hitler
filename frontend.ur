@@ -600,7 +600,8 @@ fun eval_capability (arg : option capability_arg)
             player_list <- queryL1 (SELECT *
                                     FROM player_in_game
                                     WHERE player_in_game.Room = {[rt.Room]}
-                                      AND player_in_game.Game = {[rt.CurrentGame]});
+                                      AND player_in_game.Game = {[rt.CurrentGame]}
+                                    ORDER BY RANDOM ());
             let val in_game_players = List.filter (fn p => not p.Watching) player_list
                 val num_in_game_players = List.length in_game_players
                 val get_pid = get_player_from_in_game_id rt
@@ -770,21 +771,24 @@ fun eval_capability (arg : option capability_arg)
                     kill_player tt place;
                     send_public_message (PlayerExecuted place)
 
-                fun president_veto {} : transaction {} =
-                    president_veto_turn tt;
-                    send_public_message VetoEnacted
+                fun propose_veto {} : transaction {} = return {}
 
                 fun reject_veto {} : transaction {} =
                     chanc_ord <- player_at_table tt tt.Chancellor;
                     chancellor_in_game <- player_connection_in_game tt chanc_ord.InGameId;
                     send chancellor_in_game.Chan (PrivateRsp (ChancellorRsp VetoRejected))
 
+                fun president_veto {} : transaction {} =
+                    president_veto_turn tt;
+                    send_public_message VetoEnacted
+
             in  case a of
                     InvestigateLoyalty  place => investigate_loyalty   place
                   | CallSpecialElection place => call_special_election place
                   | ExecutePlayer       place => execute_player        place
-                  |       Veto                => president_veto {}
+                  | ProposeVeto               =>   propose_veto {}
                   | RejectVeto                =>    reject_veto {}
+                  |       Veto                => president_veto {}
             end
 
         fun run_timed (a : timed_action) : transaction {} =

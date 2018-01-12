@@ -143,12 +143,11 @@ type current_step_t
     ]
 
 type deck_state_t
-  = [ LiberalsInDraw = int, FascistsInDraw = int
-    , LiberalsInDisc = int, FascistsInDisc = int
-    , Fst = serialized side
-    , Snd = serialized side
-    , Trd = serialized side
-    ]
+  = current_decks_t
+  ++ [ Fst = serialized side
+     , Snd = serialized side
+     , Trd = serialized side
+     ]
 
 type game_state_t
   = [ PresDisc     = option (serialized card)
@@ -326,8 +325,7 @@ table group_chat :
 
 fun get_rule_set [rest]
                  [game_id_t ~ rest]
-                 (t : $(game_id_t ++ rest))
-    : transaction rule_set_table =
+                 (t : $(game_id_t ++ rest)) : transaction rule_set_table =
     oneRow1 (SELECT *
              FROM rule_set
              WHERE rule_set.Room = {[t.Room]}
@@ -349,8 +347,7 @@ fun update_last_action (gt : game_table) =
 
 fun no_longer_in_game [rest]
                       [room_id_t ~ rest]
-                      (t : $(room_id_t ++ rest))
-    : transaction {} =
+                      (t : $(room_id_t ++ rest)) : transaction {} =
     dml (UPDATE room
          SET InGame = FALSE
          WHERE Room = {[t.Room]})
@@ -376,17 +373,14 @@ fun players_in_game (gt : game_table) : transaction (list player_connection) =
                AND player_in_game.Game = {[gt.Game]})
 
 fun number_of_players_in_room_for_game (rt : room_table) : transaction int =
-    oneRowE1
-        (SELECT COUNT ( * )
-         FROM player_in_game
-         WHERE player_in_game.Room = {[rt.Room]}
-
-           AND player_in_game.Game = {[rt.CurrentGame]})
+    oneRowE1 (SELECT COUNT ( * )
+              FROM player_in_game
+              WHERE player_in_game.Room = {[rt.Room]}
+                AND player_in_game.Game = {[rt.CurrentGame]})
 
 fun get_hitler [rest]
                [game_id_t ~ rest]
-               (t : $(game_id_t ++ rest))
-    : transaction place_per_game =
+               (t : $(game_id_t ++ rest)) : transaction place_per_game =
     oneRow1 (SELECT *
              FROM hitler
              WHERE hitler.Room = {[t.Room]}
@@ -394,8 +388,7 @@ fun get_hitler [rest]
 
 fun get_fascists [rest]
                  [game_id_t ~ rest]
-                 (t : $(game_id_t ++ rest))
-    : transaction (list place_per_game) =
+                 (t : $(game_id_t ++ rest)) : transaction (list place_per_game) =
     queryL1 (SELECT *
              FROM fascist
              WHERE fascist.Room = {[t.Room]}
@@ -403,8 +396,7 @@ fun get_fascists [rest]
 
 fun get_liberals [rest]
                  [game_id_t ~ rest]
-                 (t : $(game_id_t ++ rest))
-    : transaction (list place_per_game) =
+                 (t : $(game_id_t ++ rest)) : transaction (list place_per_game) =
     queryL1 (SELECT *
              FROM liberal
              WHERE liberal.Room = {[t.Room]}
@@ -412,8 +404,7 @@ fun get_liberals [rest]
 
 fun get_dead [rest]
              [game_id_t ~ rest]
-             (t : $(game_id_t ++ rest))
-    : transaction (list president_action_table) =
+             (t : $(game_id_t ++ rest)) : transaction (list president_action_table) =
     queryL1 (SELECT *
              FROM dead_player
              WHERE dead_player.Room = {[t.Room]}
@@ -513,8 +504,7 @@ fun possible_hitler (tt : turn_table) : transaction (option {Place : int}) =
                     AND hitler.Game = {[tt.Game]}
                     AND hitler.Place = {[tt.Chancellor]})
 
-fun submit_chancellor (tt : turn_table)
-                      (chan_id : int) : transaction {} =
+fun submit_chancellor (tt : turn_table) (chan_id : int) : transaction {} =
     dml (UPDATE turn
          SET Chancellor = {[chan_id]}
          WHERE Room = {[tt.Room]}
@@ -613,11 +603,8 @@ fun incr_curr_turn (rt : room_table) : transaction {} =
 
 fun skip_turn (gt : game_table) : transaction {} =
     current_turn <- current_turn_state gt;
+    deck <- next_turn_deck_state current_turn;
 
-    deck <- next_turn_deck_state { LiberalsInDraw = current_turn.LiberalsInDraw
-                                 , FascistsInDraw = current_turn.FascistsInDraw
-                                 , LiberalsInDisc = current_turn.LiberalsInDisc
-                                 , FascistsInDisc = current_turn.FascistsInDisc };
     dml (INSERT INTO turn
            ( Room
              , Game
