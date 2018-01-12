@@ -32,6 +32,4 @@ server_response
 capability
 frontend
 game_loop
-
-
 main

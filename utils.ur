@@ -13,15 +13,15 @@ fun get_set [a] (sa : source a) (f : a -> a) : transaction {} =
     set sa (f s)
 
 fun update_source_at [nm :: Name] [t ::: Type] [rest] [[nm = t] ~ rest]
-                     (f : t -> t)
                      (s : source $([nm = t] ++ rest))
+                     (f : t -> t)
     : transaction {} = get_set s (update [nm] f)
 
 fun update_source_at_2 [nm1 :: Name] [nm2 :: Name] [t ::: Type] [rest1] [rest2]
                        [[nm2 = t] ~ rest2]
                        [[nm1 = $([nm2 = t] ++ rest2)] ~ rest1]
-                       (f : t -> t)
                        (s : source $([nm1 = $([nm2 = t] ++ rest2)] ++ rest1))
+                       (f : t -> t)
     : transaction {} =
     ss <- get s;
     let val ssnm1 = ss.nm1
@@ -33,8 +33,8 @@ fun update_source_at_3 [nm1 :: Name] [nm2 :: Name] [nm3 :: Name]
                        [[nm3 = t] ~ rest3]
                        [[nm2 = $([nm3 = t] ++ rest3)] ~ rest2]
                        [[nm1 = $([nm2 = $([nm3 = t] ++ rest3)] ++ rest2)] ~ rest1]
-                       (f : t -> t)
                        (s : source $([nm1 = $([nm2 = $([nm3 = t] ++ rest3)] ++ rest2)] ++ rest1))
+                       (f : t -> t)
     : transaction {} =
     ss <- get s;
     let val (ssnm1, ssnm2) = (ss.nm1, ss.nm1.nm2)

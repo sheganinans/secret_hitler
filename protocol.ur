@@ -95,7 +95,7 @@ and voter_response
 and president_response
   = SelectCandidate of list { Nam : string, Cap : int }
   | DiscardCard     of side_cap * side_cap * side_cap
-  | LoyaltyInvestig of { Player : int, Side : side }
+  | LoyaltyInvestig of { Place : int, Side : side }
   | PolicyPeek      of side * side * side
   | VetoProposed
 

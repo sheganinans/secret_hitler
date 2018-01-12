@@ -15,6 +15,7 @@ val number_of_liberal_policies = 6
 type player_numbers_row = { Liberals : int, Fascists : int }
 
 val player_numbers_table : list (int * player_numbers_row) =
+    (2 , { Liberals = 1, Fascists = 0 }) :: (* TESTING *)
     (5 , { Liberals = 3, Fascists = 1 }) ::
     (6 , { Liberals = 4, Fascists = 1 }) ::
     (7 , { Liberals = 4, Fascists = 2 }) ::

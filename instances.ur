@@ -17,3 +17,7 @@ val step_ord : ord step =
           , Le = fn a b => step_to_int a <= step_to_int b }
 
 val step_eq : eq step = mkEq (fn a b => step_to_int a = step_to_int b)
+
+val show_side : show side = mkShow (fn s => case s of
+                                                Liberal => "Liberal"
+                                              | Fascist => "Fascist")

@@ -10,7 +10,9 @@ sequence player_seq
 table player : player_table_t PRIMARY KEY Player
     , CONSTRAINT UniqName UNIQUE Username
 
-type room_pass_t = [ Room = int, Pass = option string ]
+type room_id_t = [ Room = int ]
+
+type room_pass_t = room_id_t ++ [ Pass = option string ]
 
 type room_table_t
   = room_pass_t
@@ -110,24 +112,24 @@ table table_ordering :
     , CONSTRAINT InGame FOREIGN KEY (Room, Game, InGameId)
                  REFERENCES player_in_game (Room, Game, InGameId)
 
-type in_game_place_per_game_t = [ Place = int ] ++ game_id_t
+type place_per_game_t = [ Place = int ] ++ game_id_t
 
-type in_game_place_per_game = $in_game_place_per_game_t
+type place_per_game = $place_per_game_t
 
 table liberal :
-      in_game_place_per_game_t
+      place_per_game_t
           CONSTRAINT HasPlaceInGame
           FOREIGN KEY (Room, Game, Place)
           REFERENCES table_ordering (Room, Game, Place)
 
 table fascist :
-      in_game_place_per_game_t
+      place_per_game_t
           CONSTRAINT HasPlaceInGame
           FOREIGN KEY (Room, Game, Place)
           REFERENCES table_ordering (Room, Game, Place)
 
 table hitler :
-      in_game_place_per_game_t
+      place_per_game_t
       CONSTRAINT UniqueHilterPerGame UNIQUE (Room, Game, Place)
     , CONSTRAINT HasPlaceInGame
       FOREIGN KEY (Room, Game, Place)
@@ -137,7 +139,8 @@ type turn_id_t = game_id_t ++ [ Turn = int ]
 
 type current_step_t
   = [ HitlerCheckDone = bool
-    , CurrentStep = serialized step ]
+    , CurrentStep     = serialized step
+    ]
 
 type deck_state_t
   = [ LiberalsInDraw = int, FascistsInDraw = int
@@ -232,6 +235,8 @@ table vote :
                    REFERENCES table_ordering (Room, Game, Place)
 
 type president_action_table_t = turn_id_t ++ [ Place = int ]
+
+type president_action_table = $president_action_table_t
 
 table loyalty_investigation :
       president_action_table_t
@@ -342,6 +347,14 @@ fun update_last_action (gt : game_table) =
          WHERE Room = {[gt.Room]}
            AND Game = {[gt.Game]})
 
+fun no_longer_in_game [rest]
+                      [room_id_t ~ rest]
+                      (t : $(room_id_t ++ rest))
+    : transaction {} =
+    dml (UPDATE room
+         SET InGame = FALSE
+         WHERE Room = {[t.Room]})
+
 fun active_games {} : transaction (list game_table) =
     queryL1 (SELECT game.*
              FROM (game
@@ -367,12 +380,49 @@ fun number_of_players_in_room_for_game (rt : room_table) : transaction int =
         (SELECT COUNT ( * )
          FROM player_in_game
          WHERE player_in_game.Room = {[rt.Room]}
+
            AND player_in_game.Game = {[rt.CurrentGame]})
+
+fun get_hitler [rest]
+               [game_id_t ~ rest]
+               (t : $(game_id_t ++ rest))
+    : transaction place_per_game =
+    oneRow1 (SELECT *
+             FROM hitler
+             WHERE hitler.Room = {[t.Room]}
+               AND hitler.Game = {[t.Game]})
+
+fun get_fascists [rest]
+                 [game_id_t ~ rest]
+                 (t : $(game_id_t ++ rest))
+    : transaction (list place_per_game) =
+    queryL1 (SELECT *
+             FROM fascist
+             WHERE fascist.Room = {[t.Room]}
+               AND fascist.Game = {[t.Game]})
+
+fun get_liberals [rest]
+                 [game_id_t ~ rest]
+                 (t : $(game_id_t ++ rest))
+    : transaction (list place_per_game) =
+    queryL1 (SELECT *
+             FROM liberal
+             WHERE liberal.Room = {[t.Room]}
+               AND liberal.Game = {[t.Game]})
+
+fun get_dead [rest]
+             [game_id_t ~ rest]
+             (t : $(game_id_t ++ rest))
+    : transaction (list president_action_table) =
+    queryL1 (SELECT *
+             FROM dead_player
+             WHERE dead_player.Room = {[t.Room]}
+               AND dead_player.Game = {[t.Game]})
 
 fun add_player_to_game (rt : room_table)
                        (pt : player_table)
-                       (me)
-                       (chan)
+                       (me : client)
+                       (chan : channel Protocol.in_game_response)
                        (playing : bool)
                        (num_in_game : int) : transaction {} =
     dml (INSERT INTO player_in_game
@@ -555,6 +605,12 @@ fun hitler_check_done (tt : turn_table) : transaction {} =
            AND Game = {[tt.Game]}
            AND Turn = {[tt.Turn]})
 
+fun incr_curr_turn (rt : room_table) : transaction {} =
+    dml (UPDATE game
+         SET CurrentTurn = 1
+         WHERE Room = {[rt.Room]}
+           AND Game = {[rt.CurrentGame]})
+
 fun skip_turn (gt : game_table) : transaction {} =
     current_turn <- current_turn_state gt;
 
@@ -606,6 +662,3 @@ fun skip_turn (gt : game_table) : transaction {} =
              , NULL
              , {[current_turn.LiberalPolicies]}
              , {[current_turn.FascistPolicies]} ))
-
-fun current_step (tt : turn_table) : step =
-    deserialize tt.CurrentStep
