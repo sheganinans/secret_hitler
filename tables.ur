@@ -64,7 +64,7 @@ type game_id_t = [ Game = int, Room = int ]
 type game_table_t
   = game_id_t
   ++ [ CurrentTurn = int
-     , GameStarted = time
+     , GameStarted = option time
      , LastAction  = time
      , GameEnded   = option time ]
 
@@ -323,8 +323,7 @@ table group_chat :
     , CONSTRAINT InGroup FOREIGN KEY (Chat, Player) REFERENCES group_chat_relation (Chat, Player)
     , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
 
-fun get_rule_set [rest]
-                 [game_id_t ~ rest]
+fun get_rule_set [rest] [game_id_t ~ rest]
                  (t : $(game_id_t ++ rest)) : transaction rule_set_table =
     oneRow1 (SELECT *
              FROM rule_set
@@ -345,8 +344,7 @@ fun update_last_action (gt : game_table) =
          WHERE Room = {[gt.Room]}
            AND Game = {[gt.Game]})
 
-fun no_longer_in_game [rest]
-                      [room_id_t ~ rest]
+fun no_longer_in_game [rest] [room_id_t ~ rest]
                       (t : $(room_id_t ++ rest)) : transaction {} =
     dml (UPDATE room
          SET InGame = FALSE
@@ -378,32 +376,28 @@ fun number_of_players_in_room_for_game (rt : room_table) : transaction int =
               WHERE player_in_game.Room = {[rt.Room]}
                 AND player_in_game.Game = {[rt.CurrentGame]})
 
-fun get_hitler [rest]
-               [game_id_t ~ rest]
+fun get_hitler [rest] [game_id_t ~ rest]
                (t : $(game_id_t ++ rest)) : transaction place_per_game =
     oneRow1 (SELECT *
              FROM hitler
              WHERE hitler.Room = {[t.Room]}
                AND hitler.Game = {[t.Game]})
 
-fun get_fascists [rest]
-                 [game_id_t ~ rest]
+fun get_fascists [rest] [game_id_t ~ rest]
                  (t : $(game_id_t ++ rest)) : transaction (list place_per_game) =
     queryL1 (SELECT *
              FROM fascist
              WHERE fascist.Room = {[t.Room]}
                AND fascist.Game = {[t.Game]})
 
-fun get_liberals [rest]
-                 [game_id_t ~ rest]
+fun get_liberals [rest] [game_id_t ~ rest]
                  (t : $(game_id_t ++ rest)) : transaction (list place_per_game) =
     queryL1 (SELECT *
              FROM liberal
              WHERE liberal.Room = {[t.Room]}
                AND liberal.Game = {[t.Game]})
 
-fun get_dead [rest]
-             [game_id_t ~ rest]
+fun get_dead [rest] [game_id_t ~ rest]
              (t : $(game_id_t ++ rest)) : transaction (list president_action_table) =
     queryL1 (SELECT *
              FROM dead_player
@@ -433,19 +427,22 @@ fun add_player_to_game (rt : room_table)
              , {[if rt.InGame then True else not playing]}
              , {[num_in_game + 1]} ))
 
-fun player_at_table (tt : turn_table) (place : int) : transaction (table_ordering_table) =
+fun player_at_table [rest] [game_id_t ~ rest]
+                    (t : $(game_id_t ++ rest))
+                    (place : int) : transaction (table_ordering_table) =
     oneRow1 (SELECT *
              FROM table_ordering
-             WHERE table_ordering.Room = {[tt.Room]}
-               AND table_ordering.Game = {[tt.Game]}
+             WHERE table_ordering.Room = {[t.Room]}
+               AND table_ordering.Game = {[t.Game]}
                AND table_ordering.Place = {[place]})
 
-fun player_connection_in_game (tt : turn_table)
+fun player_connection_in_game [rest] [game_id_t ~ rest]
+                              (t : $(game_id_t ++ rest))
                               (in_game_id : int) : transaction player_connection =
     oneRow1 (SELECT *
              FROM player_in_game
-             WHERE player_in_game.Room = {[tt.Room]}
-               AND player_in_game.Game = {[tt.Game]}
+             WHERE player_in_game.Room = {[t.Room]}
+               AND player_in_game.Game = {[t.Game]}
                AND player_in_game.InGameId = {[in_game_id]})
 
 fun send_public_message (gt : game_table) (msg : public_response) : transaction {} =
@@ -489,8 +486,7 @@ fun president_veto_turn (tt : turn_table) : transaction {} =
              , {[tt.Chancellor]}))
 
 (* TODO update option to result to model state of place not being in turn. *)
-fun possible_liberal (rt : room_table)
-                     (place : int) : transaction (option {Place : int}) =
+fun possible_liberal (rt : room_table) (place : int) : transaction (option {Place : int}) =
     oneOrNoRows1 (SELECT liberal.Place
                   FROM liberal
                   WHERE liberal.Room = {[rt.Room]}

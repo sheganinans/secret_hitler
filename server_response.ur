@@ -32,7 +32,7 @@ fun gen_game_end_state (gt : game_table)
                , Liberals = List.mp (fn l => l.Place) liberals
                , Fascists = List.mp (fn f => f.Place) fascists
                , Dead = List.mp (fn d => { Turn = d.Turn, Place = d.Place }) dead
-               , Start = gt.GameStarted
+               , Start = Option.unsafeGet gt.GameStarted
                , End = end_time
                }
 

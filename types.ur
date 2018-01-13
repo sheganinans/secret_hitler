@@ -84,6 +84,7 @@ and exec_action
 
 datatype capability_arg
   = RuleSetArg of rule_set
+  |    VoteArg of option bool
 
 type current_decks_t
   = [ LiberalsInDraw = int, FascistsInDraw = int
