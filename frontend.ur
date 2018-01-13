@@ -231,6 +231,7 @@ and submit_new_game (room_id : int) (rule_set : rule_set) : transaction page =
                   , NULL
                   , {[now]}
                   , NULL )));
+    set_rules rt rule_set;
     view_room rt.Room
 
 and new_game_page (room_id : int) {} : transaction page =
@@ -606,6 +607,7 @@ fun eval_capability (arg : option capability_arg)
         fun set_rule_set {} : transaction {} =
             case arg of
                 Some (RuleSetArg rs) =>
+                set_rules rt rs;
                 send_public_message (RuleSet rs)
               | _ => return {}
 

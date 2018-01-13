@@ -500,6 +500,28 @@ fun possible_hitler (tt : turn_table) : transaction (option {Place : int}) =
                     AND hitler.Game = {[tt.Game]}
                     AND hitler.Place = {[tt.Chancellor]})
 
+fun set_rules (rt : room_table) (rs : rule_set) : transaction {} =
+    dml (INSERT INTO rule_set
+           ( Room
+             , Game
+             , TimedGame
+             , KillPlayer
+             , ChanNomTime
+             , GovVoteTime
+             , PresDisTime
+             , ChanEnaTime
+             , ExecActTime )
+         VALUES
+           ({[rt.Room]}
+             , {[rt.CurrentGame]}
+             , {[rs.TimedGame]}
+             , {[rs.KillPlayer]}
+             , {[rs.ChanNomTime]}
+             , {[rs.GovVoteTime]}
+             , {[rs.PresDisTime]}
+             , {[rs.ChanEnaTime]}
+             , {[rs.ExecActTime]} ))
+
 fun submit_chancellor (tt : turn_table) (chan_id : int) : transaction {} =
     dml (UPDATE turn
          SET Chancellor = {[chan_id]}
