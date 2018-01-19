@@ -3,11 +3,12 @@ open Protocol
 open Tables
 open Utils
 
-fun on_load {} : transaction {} =
-    me <- self;
+fun on_view_room_load (rt : room_table) (pt : player_table) : transaction {} =
     chan <- oneRow1 (SELECT player_in_game.Chan
                      FROM player_in_game
-                     WHERE player_in_game.Client = {[me]});
+                     WHERE player_in_game.Room = {[rt.Room]}
+                       AND player_in_game.Game = {[rt.CurrentGame]}
+                       AND player_in_game.Player = {[pt.Player]});
     return {}
 
 fun signup_page {} : transaction page =
@@ -37,6 +38,35 @@ fun signup_page {} : transaction page =
     </table></form></body></xml>
     end
 
+
+and login_page {} : transaction page = return <xml><body>{login_form {}}</body></xml>
+
+and login_form {} : make_form = <xml><table>
+  <tr><td><a link={main_menu {}}>Back to Main Menu</a></td></tr>
+  <tr><td><a link={signup_page {}}>Need to Signup?</a></td></tr>
+  <tr><td>
+    <form>
+      <table>
+        <tr>Login!</tr>
+        <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
+        <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
+        <tr><th/><td><submit action={submit_login}/></td></tr>
+       </table></form></td></tr>
+  </table></xml>
+
+and submit_login (login_form : player_name_and_pass) : transaction page =
+    let val pw_hs = Auth.basic_hash login_form.PassHash
+    in  hp_o <- oneOrNoRows1 (SELECT player.PassHash
+                              FROM player
+                              WHERE player.Username = {[login_form.Username]});
+        case hp_o of
+            None => login_page {}
+          | Some hp =>
+            if hp.PassHash <> pw_hs
+            then login_page {}
+            else set_username_cookie login_form.Username pw_hs;
+                 main_menu {}
+    end
 
 and check_role (role : role) : transaction player_table =
     check <- check_login role;
@@ -124,35 +154,6 @@ and select_rooms_controlled {} : transaction (list room_table) =
     return (List.append rl_1 rl_2)
 
 
-and login_page {} : transaction page = return <xml><body>{login_form {}}</body></xml>
-
-and login_form {} : make_form = <xml><table>
-  <tr><td><a link={main_menu {}}>Back to Main Menu</a></td></tr>
-  <tr><td><a link={signup_page {}}>Need to Signup?</a></td></tr>
-  <tr><td>
-    <form>
-      <table>
-        <tr>Login!</tr>
-        <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
-        <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
-        <tr><th/><td><submit action={submit_login}/></td></tr>
-       </table></form></td></tr>
-  </table></xml>
-
-and submit_login (login_form : player_name_and_pass) : transaction page =
-    let val pw_hs = Auth.basic_hash login_form.PassHash
-    in  hp_o <- oneOrNoRows1 (SELECT player.PassHash
-                              FROM player
-                              WHERE player.Username = {[login_form.Username]});
-        case hp_o of
-            None => login_page {}
-          | Some hp =>
-            if hp.PassHash <> pw_hs
-            then login_page {}
-            else set_username_cookie login_form.Username pw_hs;
-                 main_menu {}
-    end
-
 and kick_player (room_id : int) : transaction page = return <xml></xml>
 
 and kicked_body (rt : room_table) : xbody =
@@ -237,8 +238,8 @@ and submit_new_game (room_id : int) (rule_set : rule_set) : transaction page =
 and new_game_page (room_id : int) {} : transaction page =
     return <xml><body><form><table>
       <tr><th>New Game: Time Table</th></tr>
-      <tr><th>Timed Game?</th>               <td><checkbox{#TimedGame}/></td></tr>
       <tr><th>Kill Player as Punishment?</th><td><checkbox{#KillPlayer}/></td></tr>
+      <tr><th>Timed Game?</th>               <td><checkbox{#TimedGame}/></td></tr>
       <tr><th>Chancellor Nomination</th>     <td><number{#ChanNomTime} value=0./></td></tr>
       <tr><th>Government Vote</th>           <td><number{#GovVoteTime} value=0./></td></tr>
       <tr><th>President Discard</th>         <td><number{#PresDisTime} value=0./></td></tr>
@@ -323,239 +324,101 @@ and join_room (room_id : int) : transaction page =
                 </table></form></body></xml>
     end
 
+and join_game (room_id : int) : transaction page =
+    (pt, rt) <- only_if_player_not_kicked_exn room_id;
+    let fun submit_join_game (playing : bool) {} : transaction page =
+            gt_o <- oneOrNoRows1 (SELECT *
+                                  FROM game
+                                  WHERE game.Game = {[rt.CurrentGame]});
+            (case gt_o of
+                 None => return {}
+               | Some gt =>
+                 me <- self;
+                 chan <- channel;
+                 num_in_game <- number_of_players_in_room_for_game rt;
+                 add_player_to_game rt pt me chan playing num_in_game);
+            view_room room_id
+
+    in  if rt.InGame
+        then submit_join_game False {}
+        else return <xml><body>
+          <table>
+            <tr><td><form>
+              <submit value="Playing"  action={submit_join_game  True}/></form></td></tr>
+            <tr><td><form>
+              <submit value="Watching" action={submit_join_game False}/></form></td></tr>
+        </table></body></xml>
+    end
+
 and chat (chat_id : int) : transaction xbody =
     return <xml></xml>
 
 and view_room (room_id : int) : transaction page =
     (pt, rt) <- only_if_player_not_kicked_exn room_id;
-    let fun join_game {} : transaction page =
-            let fun submit_join_game (playing : { Playing : bool }) : transaction page =
-                    gt_o <- oneOrNoRows1 (SELECT *
-                                          FROM game
-                                          WHERE game.Game = {[rt.CurrentGame]});
-                    (case gt_o of
-                         None => return {}
-                       | Some gt =>
-                         me <- self;
-                         chan <- channel;
-                         num_in_game <- number_of_players_in_room_for_game rt;
-                         add_player_to_game rt pt me chan playing.Playing num_in_game);
-                    view_room room_id
 
-            in  if rt.InGame
-                then submit_join_game {Playing = False}
-                else return <xml><body><form><table>
-                  <tr><th>Playing?</th><td><checkbox{#Playing}/></td></tr>
-                  <tr><td><submit action={submit_join_game}/></td></tr>
-                </table></form></body></xml>
-            end
+    rp_o <- oneOrNoRows1 (SELECT *
+                          FROM room_player
+                          WHERE room_player.Player = {[pt.Player]}
+                            AND room_player.Room   = {[rt.Room]});
+    case rp_o of
+        None   => join_room room_id
+      | Some _ =>
+        ordering <- queryL1 (SELECT *
+                             FROM table_ordering
+                             WHERE table_ordering.Room = {[rt.Room]}
+                               AND table_ordering.Game = {[rt.CurrentGame]});
 
-    in  rp_o <- oneOrNoRows1 (SELECT *
-                              FROM room_player
-                              WHERE room_player.Player = {[pt.Player]}
-                                AND room_player.Room   = {[rt.Room]});
-        case rp_o of
-            None   => join_room room_id
-          | Some _ =>
-            ordering <- queryL1 (SELECT *
-                                 FROM table_ordering
-                                 WHERE table_ordering.Room = {[rt.Room]}
-                                   AND table_ordering.Game = {[rt.CurrentGame]});
+        let fun no_game_yet {} : transaction xbody = return <xml>No Game Yet</xml>
 
-            (messages : source (list {Msg : string, Time : time})) <- source [];
+        in  player_list <- get_all_un_and_id_in_room room_id;
+            mods <- queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]});
 
-            (rs : source (option rule_set)) <- source None;
+            curr_game <- oneOrNoRows1 (SELECT *
+                                       FROM game
+                                       WHERE game.Room = {[rt.Room]}
+                                         AND game.Game = {[rt.CurrentGame]});
+            case curr_game of
+                None => if rt.OwnedBy = pt.Player ||
+                           List.exists (fn m => pt.Player = m.Player) mods
+                        then new_game_page room_id {}
+                        else return <xml><body>
+                          <a link={view_invite room_id}>View Invite</a>
+                          <br/>No Game yet</body></xml>
+              | Some _ =>
+                pig <- oneOrNoRows1 (SELECT *
+                                     FROM player_in_game
+                                     WHERE player_in_game.Room = {[rt.Room]}
+                                       AND player_in_game.Game = {[rt.CurrentGame]}
+                                       AND player_in_game.Player = {[pt.Player]});
+                case pig of
+                    None => join_game room_id
+                  | Some pig =>
+                    chan <- channel;
+                    dml (UPDATE player_in_game
+                         SET Chan = {[chan]}
+                         WHERE Room = {[rt.Room]}
+                           AND Game = {[rt.CurrentGame]}
+                           AND Player = {[pt.Player]});
 
-            (gs : source private_game_state)
-                <- source { PublicGameState =
-                            { CurrentTurn =
-                              { President       = 0
-                              , Chancellor      = 0
-                              , FascistPolicies = 0
-                              , LiberalPolicies = 0
-                              , RejectCount     = 0
-                              }
-                            , GameHistory = []
-                            , ChatHistory = []
-                            , Players     = []
-                            }
-                          , GameRole          = Watcher
-                          , KnownAffiliations = []
-                          , Top3CardsInDraw   = []
-                          };
+                    (page_body : source xbody) <- source (<xml><table>
+                      <tr><td><a link={view_invite room_id}>View Invite</a></td></tr>
+                      <tr><th>View Room {[show rt.Nam]}</th></tr>
+                      {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
+                                 player_list}
+                    </table></xml>);
 
-            (vs : source (option (list {Place : int, Vote : bool}))) <- source None;
+                    client_handler <- Client_handler.client_handler_closure page_body;
 
-            (trs : source turn_role) <- source Voter;
-
-            let fun no_game_yet {} : transaction xbody = return <xml>No Game Yet</xml>
-
-                fun join_game_view {} : transaction xbody = return <xml></xml>
-
-                fun app_vote (vn : vote_notif) (vl_o : option (list vote_notif))
-                    : option (list vote_notif) =
-                    case vl_o of
-                        None    => Some (vn :: [])
-                      | Some vl => Some (if List.exists (fn v => vn.Place = v.Place) vl
-                                         then vl |> List.mp (fn v => if v.Place = vn.Place
-                                                                     then vn
-                                                                     else v)
-                                         else vn :: vl)
-
-                fun app_msg msg =
-                    now <- now;
-                    get_set messages (fn msgs => { Msg  = msg, Time = now } :: msgs)
-
-                fun client_handler (msg : Protocol.in_game_response) : transaction {} =
-                    let fun public_rsp_handler (rsp : Protocol.public_response) : transaction {} =
-                            case rsp of
-                                Chat c =>
-                                update_source_at_2 [#PublicGameState]
-                                                   [#ChatHistory]
-                                                   gs (fn hist => c :: hist)
-                              | RuleSet r => set rs (Some r)
-                              | PublicGameState pgs =>
-                                update_source_at [#PublicGameState] gs (fn _ => pgs)
-                              | NewTurn new_turn =>
-                                app_msg "New Turn!";
-                                game <- get gs;
-                                let val pgs = game.PublicGameState
-                                    val previous_turn = pgs.CurrentTurn
-                                in  set gs (game -- #PublicGameState
-                                                 ++ { PublicGameState =
-                                                   pgs -- #CurrentTurn -- #GameHistory
-                                                       ++ { CurrentTurn = new_turn
-                                                          , GameHistory =
-                                                            previous_turn :: pgs.GameHistory }})
-                                end
-                              | TurnRole r => return {}
-                              | ChancellorChosen c =>
-                                app_msg "Chancellor chosen";
-                                update_source_at_3 [#PublicGameState]
-                                                   [#CurrentTurn]
-                                                   [#Chancellor] gs (fn _ => c)
-                              | VoteNotif n => get_set vs (app_vote n)
-                              | NewGovt _ => return {}
-                              | PresidentDiscard =>
-                                app_msg "President Discarded policy, waiting for chancellor."
-                              | PolicyPassed p =>
-                                app_msg (show p ^ " policy passed!");
-                                (case p of
-                                    Fascist =>
-                                    update_source_at_3 [#PublicGameState]
-                                                       [#CurrentTurn]
-                                                       [#FascistPolicies] gs (fn n => n + 1)
-                                  | Liberal =>
-                                    update_source_at_3 [#PublicGameState]
-                                                       [#CurrentTurn]
-                                                       [#LiberalPolicies] gs (fn n => n + 1))
-                              | PlayersPunished _ =>
-                                app_msg "Player punished!"
-                              | ExecutionPower =>
-                                app_msg "President must execute player."
-                              | PlayerExecuted _ => return {}
-                              | VetoEnacted =>
-                                app_msg "Chancellor and President enacted veto."
-                              | GameEndState _ => return {}
-
-                        fun private_rsp_handler (rsp : Protocol.private_response)
-                            : transaction {} =
-                            let fun voter_handler r =
-                                    case r of
-                                        VoteCapability cap => return {}
-
-                                fun president_handler r =
-                                    case r of
-                                        SelectCandidate cs => return {}
-                                      | DiscardCard (one, two, three) => return {}
-                                      | LoyaltyInvestig player => return {}
-                                      | PolicyPeek (one, two, three) => return {}
-                                      | VetoProposed => return {}
-
-                                fun chancellor_handler r =
-                                    case r of
-                                        Policies policies => return {}
-                                      | VetoRejected => return {}
-
-                                fun fascist_handler r =
-                                    case r of
-                                        Affiliations as => return {}
-
-                            in  case rsp of
-                                         VoterRsp r =>      voter_handler r
-                                  |  PresidentRsp r =>  president_handler r
-                                  | ChancellorRsp r => chancellor_handler r
-                                  |    FascistRsp r =>    fascist_handler r
-                            end
-
-                    in  case msg of  PublicRsp rsp =>  public_rsp_handler rsp
-                                  | PrivateRsp rsp => private_rsp_handler rsp
-                    end
-
-                fun display_vote_state {} : transaction xbody =
-                    vs <- get vs;
-                    case vs of
-                        None => return <xml>No votes yet.</xml>
-                      | Some _ => return <xml>Votes here</xml>
-
-            in  player_list <- get_all_un_and_id_in_room room_id;
-                mods <- queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]});
-
-                curr_game <- oneOrNoRows1 (SELECT *
-                                           FROM game
-                                           WHERE game.Room = {[rt.Room]}
-                                             AND game.Game = {[rt.CurrentGame]});
-                case curr_game of
-                    None => if rt.OwnedBy = pt.Player (*||
-                               List.exists (fn m => pt.Player = m.Player) mods*)
-                            then new_game_page room_id {}
-                            else return <xml><body>
-                              <a link={view_invite room_id}>View Invite</a>
-                              <br/>No Game yet</body></xml>
-                  | Some _ =>
-                    pig <- oneOrNoRows1 (SELECT *
-                                         FROM player_in_game
-                                         WHERE player_in_game.Room = {[rt.Room]}
-                                           AND player_in_game.Game = {[rt.CurrentGame]}
-                                           AND player_in_game.Player = {[pt.Player]});
-                    case pig of
-                        None => join_game {}
-                      | Some pig =>
-                        chan <- channel;
-                        dml (UPDATE player_in_game
-                             SET Chan = {[chan]}
-                             WHERE Room = {[rt.Room]}
-                               AND Game = {[rt.CurrentGame]}
-                               AND Player = {[pt.Player]});
-                        return <xml><body onload={
-                          let fun rsp_loop {} =
-                                  msg <- recv chan;
-                                  client_handler msg;
-                                  rsp_loop {}
-
-                              fun msg_loop {} =
-                                  now <- now;
-                                  get_set messages
-                                          (List.filter (fn m => addSeconds m.Time 15 < now));
-                                  sleep 3;
-                                  msg_loop {}
-
-                          in  rpc (on_load {});
-                              spawn (rsp_loop {});
-                              spawn (msg_loop {})
-                          end}>
-                          <table>
-                            <tr><td><a link={view_invite room_id}>View Invite</a></td></tr>
-                            <tr><th>View Room {[show rt.Nam]}</th></tr>
-                            {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
-                                       player_list}
-                        </table></body></xml>
-            end
-    end
-
-and start_game (room_id : int) : transaction page =
-    (pt, rt) <- only_if_owner_mod_exn room_id;
-    view_room room_id
+                    return <xml><body onload={
+                      let fun rsp_loop {} =
+                              msg <- recv chan;
+                              client_handler msg;
+                              rsp_loop {}
+                      in  rpc (on_view_room_load rt pt);
+                          spawn (rsp_loop {})
+                      end}><active code={pb <- get page_body;
+                                         return pb}></active></body></xml>
+        end
 
 and get_all_un_and_id_in_room (room_id : int) : transaction (list player_id_and_username) =
     _ <- player_in_room_exn room_id;
@@ -563,9 +426,11 @@ and get_all_un_and_id_in_room (room_id : int) : transaction (list player_id_and_
              FROM (room_player
                  INNER JOIN player
                  ON room_player.Player = player.Player)
-             WHERE room_player.Room = {[room_id]})
+             WHERE room_player.Room = {[room_id]}
+             ORDER BY player.Username)
 
-and new_mod {} : transaction page =
+and new_mod (room_id : int) : transaction page =
+    _ <- only_if_owner_mod_exn room_id;
     let fun submit_new_mod (room_id : int) (player_id : int) {} =
             (pt, rt) <- only_if_owner_mod_exn room_id;
             now <- now;
@@ -573,28 +438,34 @@ and new_mod {} : transaction page =
                  VALUES ({[rt.Room]}, {[player_id]}, {[pt.Player]}, {[now]}));
             view_room room_id
 
-        fun new_mod_page (room_id : int) {} : transaction page =
-            player_list <- get_all_un_and_id_in_room room_id;
-            return <xml><body>
-              {List.mapX (fn p =>
-                             <xml><form>
-                               <submit value={p.Username}
-                                       action={submit_new_mod room_id p.Player}/>
-                             </form></xml>)
-                         player_list}</body></xml>
-
-    in  room_list <- select_rooms_controlled {};
+    in  player_list <- get_all_un_and_id_in_room room_id;
         return <xml><body>
-          {List.mapX (fn r =>
-                         <xml><form><submit value={r.Nam}
-                                            action={new_mod_page r.Room}/>
+          {List.mapX (fn p =>
+                         <xml><form>
+                           <submit value={p.Username}
+                                   action={submit_new_mod room_id p.Player}/>
                          </form></xml>)
-                     room_list}
-        </body></xml>
+                     player_list}</body></xml>
     end
 
-and rem_mod {} : transaction page = return <xml></xml>
+and rem_mod (room_id : int) : transaction page =
+    _ <- only_if_owner_mod_exn room_id;
+    let fun submit_rem_mod (room_id : int) (player_id : int) {} =
+            (pt, rt) <- only_if_owner_mod_exn room_id;
+            now <- now;
+            dml (DELETE FROM mod WHERE Room = {[room_id]}
+                                   AND Player = {[player_id]});
+            view_room room_id
 
+    in  player_list <- get_all_un_and_id_in_room room_id;
+        return <xml><body>
+          {List.mapX (fn p =>
+                         <xml><form>
+                           <submit value={p.Username}
+                                   action={submit_rem_mod room_id p.Player}/>
+                         </form></xml>)
+                     player_list}</body></xml>
+    end
 
 fun eval_capability (arg : option capability_arg)
                     (room_id : int)
@@ -744,17 +615,15 @@ fun eval_capability (arg : option capability_arg)
             submit_chancellor tt chan_id;
             send_public_message (ChancellorChosen chan_id)
 
-        fun discard_policy (p : card) : transaction {} =
-            submit_discard tt p;
+        fun discard_policy (c : card) : transaction {} =
+            submit_discard tt c;
             send_public_message PresidentDiscard
 
         fun enact_policy (c : card) : transaction {} =
             let val chosen_policy : side = deserialize (case c of Fst => tt.Fst
                                                                 | Snd => tt.Snd
                                                                 | Trd => tt.Trd)
-            in
-                send_public_message (PolicyPassed chosen_policy)
-            end
+            in  send_public_message (PolicyPassed chosen_policy) end
 
         fun eval_vote (v : option bool) : transaction {} =
             vote_o <- does_vote_exist_for tt ot.Place;
@@ -783,7 +652,10 @@ fun eval_capability (arg : option capability_arg)
                     kill_player tt place;
                     send_public_message (PlayerExecuted place)
 
-                fun propose_veto {} : transaction {} = return {}
+                fun propose_veto {} : transaction {} =
+                    pres_ord <- player_at_table tt tt.President;
+                    president_in_game <- player_connection_in_game tt pres_ord.InGameId;
+                    send president_in_game.Chan (PrivateRsp (PresidentRsp VetoProposed))
 
                 fun reject_veto {} : transaction {} =
                     chanc_ord <- player_at_table tt tt.Chancellor;
@@ -798,8 +670,8 @@ fun eval_capability (arg : option capability_arg)
                         | CallSpecialElection place => call_special_election place
                         | ExecutePlayer       place => execute_player        place
                         | ProposeVeto               =>   propose_veto {}
-                        | RejectVeto                =>    reject_veto {}
-                        |       Veto                => president_veto {}
+                        |  RejectVeto               =>    reject_veto {}
+                        |        Veto               => president_veto {}
             end
 
         fun run_timed (a : timed_action) : transaction {} =
@@ -820,7 +692,6 @@ fun eval_capability (arg : option capability_arg)
                                                  Vote  v => eval_vote v
                                                | Timed a => run_timed a)
     end
-
 
 task periodic 60 = (* Kick removal loop *)
      fn {} =>
