@@ -67,7 +67,8 @@ datatype in_game_response
   | PrivateRsp of private_response
 
 and public_response
-  = Chat             of chat_contents
+  = PlayersOnTable   of list {Place : int, Username : string}
+  | Chat             of chat_contents
   | RuleSet          of rule_set
   | PublicGameState  of public_game_state
   | NewTurn          of govt_state

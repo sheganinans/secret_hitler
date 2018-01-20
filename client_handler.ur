@@ -1,47 +1,54 @@
 open Protocol
 open Utils
+open Tables
 open Types
 
-fun client_handler_closure
-        (page : source xbody)
-    : transaction (Protocol.in_game_response -> transaction {}) =
-    (msgs : source (list {Msg : string, Time : time})) <- source [];
+fun default_game_view {} : transaction xbody =
+    return <xml>gv</xml>
 
-    (rs : source (option rule_set)) <- source None;
+fun client_view_closure {}
+    : transaction (source xbody * (Protocol.in_game_response -> transaction {})) =
 
-    (gs : source private_game_state)
-    <- source { PublicGameState =
-                { CurrentTurn =
-                  { President       = 0
-                  , Chancellor      = 0
-                  , FascistPolicies = 0
-                  , LiberalPolicies = 0
-                  , RejectCount     = 0
-                  }
-                , GameHistory = []
-                , ChatHistory = []
-                , Players     = []
-                }
-              , GameRole          = Watcher
-              , KnownAffiliations = []
-              , Top3CardsInDraw   = []
-              };
+    default_view <- default_game_view {};
 
-    (vs : source (option (list {Place : int, Vote : bool}))) <- source None;
+    (page : source xbody) <- source default_view;
 
-    (trs : source turn_role) <- source Voter;
+    (msg_s : source (list {Msg : string, Time : time})) <- source [];
 
-    let
-        fun msg_loop {} : transaction {} =
-            now <- now;
-            get_set msgs
-                    (List.filter (fn m => addSeconds m.Time 15 < now));
-            sleep 3;
-            msg_loop {}
+    (rule_s : source (option rule_set)) <- source None;
+
+    (game_s : source private_game_state) <- source { PublicGameState =
+                                                     { CurrentTurn =
+                                                       { President       = 0
+                                                       , Chancellor      = 0
+                                                       , FascistPolicies = 0
+                                                       , LiberalPolicies = 0
+                                                       , RejectCount     = 0
+                                                       }
+                                                     , GameHistory = []
+                                                     , ChatHistory = []
+                                                     , Players     = []
+                                                     }
+                                                   , GameRole          = Watcher
+                                                   , KnownAffiliations = []
+                                                   , Top3CardsInDraw   = []
+                                                   };
+
+    (vote_s : source (option (list {Place : int, Vote : bool}))) <- source None;
+
+    (role_s : source turn_role) <- source Voter;
+
+    let val msg_loop =
+            let fun go {} =
+                now <- now;
+                get_set msg_s (List.filter (fn m => addSeconds m.Time 15 < now));
+                sleep 3;
+                go {}
+            in spawn (go {}) end
 
         fun display_vote_state {} : transaction xbody =
-            vs <- get vs;
-            case vs of
+            vote_s <- get vote_s;
+            case vote_s of
                 None => return <xml>No votes yet.</xml>
               | Some _ => return <xml>Votes here</xml>
 
@@ -58,36 +65,37 @@ fun client_handler_closure
 
         fun app_msg msg =
             now <- now;
-            get_set msgs (fn msgs => { Msg = msg, Time = now } :: msgs)
+            get_set msg_s (fn msg_s => { Msg = msg, Time = now } :: msg_s)
 
         fun public_rsp_handler (rsp : public_response) : transaction {} =
             case rsp of
-                Chat c =>
+                PlayersOnTable _ => return {}
+              | Chat c =>
                 update_source_at_2 [#PublicGameState]
                                    [#ChatHistory]
-                                   gs (fn hist => c :: hist)
-              | RuleSet r => set rs (Some r)
-              | PublicGameState pgs =>
-                update_source_at [#PublicGameState] gs (fn _ => pgs)
+                                   game_s (fn hist => c :: hist)
+              | RuleSet r => set rule_s (Some r)
+              | PublicGameState pgame_s =>
+                update_source_at [#PublicGameState] game_s (fn _ => pgame_s)
               | NewTurn new_turn =>
                 app_msg "New Turn!";
-                game <- get gs;
-                let val pgs = game.PublicGameState
-                    val previous_turn = pgs.CurrentTurn
-                in  set gs (game -- #PublicGameState
+                game <- get game_s;
+                let val pgame_s = game.PublicGameState
+                    val previous_turn = pgame_s.CurrentTurn
+                in  set game_s (game -- #PublicGameState
                                  ++ { PublicGameState =
-                                      pgs -- #CurrentTurn -- #GameHistory
+                                      pgame_s -- #CurrentTurn -- #GameHistory
                                           ++ { CurrentTurn = new_turn
                                              , GameHistory =
-                                               previous_turn :: pgs.GameHistory }})
+                                               previous_turn :: pgame_s.GameHistory }})
                 end
               | TurnRole r => return {}
               | ChancellorChosen c =>
                 app_msg "Chancellor chosen";
                 update_source_at_3 [#PublicGameState]
                                    [#CurrentTurn]
-                                   [#Chancellor] gs (fn _ => c)
-              | VoteNotif n => get_set vs (app_vote n)
+                                   [#Chancellor] game_s (fn _ => c)
+              | VoteNotif n => get_set vote_s (app_vote n)
               | NewGovt _ => return {}
               | PresidentDiscard =>
                 app_msg "President Discarded policy, waiting for chancellor."
@@ -97,11 +105,11 @@ fun client_handler_closure
                      Fascist =>
                      update_source_at_3 [#PublicGameState]
                                         [#CurrentTurn]
-                                        [#FascistPolicies] gs (fn n => n + 1)
+                                        [#FascistPolicies] game_s (fn n => n + 1)
                    | Liberal =>
                      update_source_at_3 [#PublicGameState]
                                         [#CurrentTurn]
-                                        [#LiberalPolicies] gs (fn n => n + 1))
+                                        [#LiberalPolicies] game_s (fn n => n + 1))
               | PlayersPunished _ =>
                 app_msg "Player punished!"
               | ExecutionPower =>
@@ -140,7 +148,7 @@ fun client_handler_closure
                   |    FascistRsp r =>    fascist_handler r
             end
 
-    in return (fn msg => case msg of
-                              PublicRsp rsp =>  public_rsp_handler rsp
-                           | PrivateRsp rsp => private_rsp_handler rsp)
+    in  return (page, fn msg => case msg of
+                                    PublicRsp rsp =>  public_rsp_handler rsp
+                                  | PrivateRsp rsp => private_rsp_handler rsp)
     end

@@ -323,6 +323,12 @@ table group_chat :
     , CONSTRAINT InGroup FOREIGN KEY (Chat, Player) REFERENCES group_chat_relation (Chat, Player)
     , CONSTRAINT HasPlayer FOREIGN KEY Player REFERENCES player (Player)
 
+
+task periodic 60 = (* Kick removal loop *)
+     fn {} =>
+        now <- now;
+        dml (DELETE FROM kick WHERE Till < {[now]})
+
 fun get_rule_set [rest] [game_id_t ~ rest]
                  (t : $(game_id_t ++ rest)) : transaction rule_set_table =
     oneRow1 (SELECT *

@@ -6,11 +6,11 @@ val eq_room_player_relation : eq room_player_relation =
 
 fun step_to_int (step : step) : int =
     case step of
-        ChancellorSelectStep => 10
-      | VoteStep             => 20
-      | DiscardStep          => 30
-      | EnactStep            => 40
-      | ExecActionStep       => 50
+        ChancellorSelectStep => 1
+      | VoteStep             => 2
+      | DiscardStep          => 3
+      | EnactStep            => 4
+      | ExecActionStep       => 5
 
 val step_ord : ord step =
     mkOrd { Lt = fn a b => step_to_int a <  step_to_int b
