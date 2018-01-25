@@ -466,6 +466,18 @@ fun get_capability (tt : turn_table)
                     AND capability.Place = {[place]}
                     AND capability.Capability = {[cap_id]})
 
+fun get_players_playing (gt : game_table) : transaction (list { Username : string
+                                                              , InGameId : int
+                                                          }) =
+    queryL (SELECT player.Username AS Username, PIG.InGameId AS InGameId
+             FROM (SELECT player_in_game.Player   AS Player
+                        , player_in_game.InGameId AS InGameId
+                   FROM player_in_game
+                   WHERE player_in_game.Room = {[gt.Room]}
+                     AND player_in_game.Game = {[gt.Game]}
+                     AND player_in_game.Watching = FALSE) AS PIG
+             JOIN player ON PIG.Player = player.Player)
+
 fun alive_player_ordering (gt : game_table) : transaction (list table_ordering_table) =
     queryL1 (SELECT table_ordering.*
              FROM (table_ordering

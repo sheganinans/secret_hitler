@@ -13,10 +13,11 @@ and mod_action
   | Kick of { Player : int, Till : time }
 
 type public_game_state_t
-  = [ CurrentTurn =      govt_state
+  = [ CurrentStep = step
+    , CurrentTurn =      govt_state
     , GameHistory = list govt_state
-    , ChatHistory = list chat_contents
-    , Players     = list { Player   : int
+(*    , ChatHistory = list chat_contents*)
+    , Players     = list { Place    : int
                          , Username : string
                          , Alive    : bool
                          }
@@ -67,8 +68,9 @@ datatype in_game_response
   | PrivateRsp of private_response
 
 and public_response
-  = PlayersOnTable   of list {Place : int, Username : string}
-  | Chat             of chat_contents
+  = PlayersOnTable   of list {InGameId : int, Username : string}
+  | NewPlayer        of {InGameId : int, Username : string}
+(*  | Chat             of chat_contents (* Chatting is a room level funtion, not game level. *) *)
   | RuleSet          of rule_set
   | PublicGameState  of public_game_state
   | NewTurn          of govt_state

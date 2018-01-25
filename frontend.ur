@@ -3,13 +3,14 @@ open Protocol
 open Tables
 open Utils
 
-fun on_view_room_load (rt : room_table) (pt : player_table) : transaction {} =
+fun on_view_room_load (pt : player_table) (rt : room_table) (gt : game_table) : transaction {} =
+    curr_players <- get_players_playing gt;
     chan <- oneRow1 (SELECT player_in_game.Chan
                      FROM player_in_game
                      WHERE player_in_game.Room = {[rt.Room]}
                        AND player_in_game.Game = {[rt.CurrentGame]}
                        AND player_in_game.Player = {[pt.Player]});
-    return {}
+    send chan.Chan (PublicRsp (PlayersOnTable curr_players))
 
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
@@ -27,7 +28,7 @@ fun signup_page {} : transaction page =
                              , {[signup.Username]}
                              , {[pw_hs]} ));
                     set_username_cookie signup.Username pw_hs;
-                    main_menu {}
+                    redirect (url (main_menu {}))
             end
 
     in  return <xml><body><form><table>
@@ -63,9 +64,9 @@ and submit_login (login_form : player_name_and_pass) : transaction page =
             None => login_page {}
           | Some hp =>
             if hp.PassHash <> pw_hs
-            then login_page {}
+            then redirect (url (login_page {}))
             else set_username_cookie login_form.Username pw_hs;
-                 main_menu {}
+                 redirect (url (main_menu {}))
     end
 
 and check_login (r : role) : transaction (result player_table string) =
@@ -221,7 +222,7 @@ and new_room {} : transaction page =
                      , FALSE ));
             dml (INSERT INTO room_player (Room, Player, SetBy, Time)
                  VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}));
-            view_room room_id
+            redirect (url (view_room room_id))
 
     in  return <xml><body><form>
           <table>
@@ -257,7 +258,7 @@ and submit_new_game (room_id : int) (rule_set : rule_set) : transaction page =
                   , {[now]}
                   , NULL )));
     set_rules rt rule_set;
-    view_room rt.Room
+    redirect (url (view_room rt.Room))
 
 and new_game_page (room_id : int) {} : transaction page =
     return <xml><body><form><table>
@@ -324,7 +325,7 @@ and join_room (room_id : int) : transaction page =
                   dml (INSERT INTO room_player (Room, Player, SetBy, Time)
                        VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}))
              else return {});
-            view_room room_id
+            redirect (url (view_room room_id))
 
     in  pt <- check_role Player;
         rp_o <- oneOrNoRows1 (SELECT *
@@ -360,8 +361,10 @@ and join_game (room_id : int) : transaction page =
                  me <- self;
                  chan <- channel;
                  num_in_game <- number_of_players_in_room_for_game rt;
-                 add_player_to_game rt pt me chan playing num_in_game);
-            view_room room_id
+                 add_player_to_game rt pt me chan playing num_in_game;
+                 send_public_message gt (NewPlayer { Username = pt.Username
+                                                   , InGameId = num_in_game }));
+            redirect (url (view_room room_id))
 
     in  if rt.InGame
         then submit_join_game False {}
@@ -394,7 +397,7 @@ and view_room (room_id : int) : transaction page =
 
         let fun no_game_yet {} : transaction xbody = return <xml>No Game Yet</xml>
 
-        in mods <- queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]});
+        in  mods <- queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]});
 
             curr_game <- oneOrNoRows1 (SELECT *
                                        FROM game
@@ -407,7 +410,7 @@ and view_room (room_id : int) : transaction page =
                         else return <xml><body>
                           <a link={view_invite room_id}>View Invite</a>
                           <br/>No Game yet</body></xml>
-              | Some _ =>
+              | Some gt =>
                 pig <- oneOrNoRows1 (SELECT *
                                      FROM player_in_game
                                      WHERE player_in_game.Room = {[rt.Room]}
@@ -423,19 +426,21 @@ and view_room (room_id : int) : transaction page =
                            AND Game = {[rt.CurrentGame]}
                            AND Player = {[pt.Player]});
 
-                    (client_body, client_handler) <- Client_handler.client_view_closure {};
+                    gv_ch <- Game_view.game_view_and_client_handler gt;
 
-                    return <xml><body onload={
-                      let fun rsp_loop {} =
-                              msg <- recv chan;
-                              client_handler msg;
-                              rsp_loop {}
-                      in  rpc (on_view_room_load rt pt);
-                          spawn (rsp_loop {})
-                      end}><table>
-                      <tr><td><a link={view_invite room_id}>View Invite</a></td></tr>
-                      <tr><td><active code={c_b <- get client_body;
-                                            return c_b}></active></td></tr></table></body></xml>
+                    return <xml><head><script code={
+                    let fun rsp_loop {} =
+                            msg <- recv chan;
+                            gv_ch.Handler msg;
+                            rsp_loop {}
+                    in spawn (rsp_loop {}) end}></script></head>
+
+                      <body onload={rpc (on_view_room_load pt rt gt)}>
+                        <table>
+                          <tr><td><a link={view_invite room_id}>View Invite</a></td></tr>
+                          <tr><td><active code={v <- gv_ch.View;
+                                                current v}>
+                    </active></td></tr></table></body></xml>
         end
 
 and get_all_un_and_id_in_room (room_id : int) : transaction (list player_id_and_username) =
@@ -454,7 +459,7 @@ and new_mod (room_id : int) : transaction page =
             now <- now;
             dml (INSERT INTO mod (Room, Player, SetBy, Time)
                  VALUES ({[rt.Room]}, {[player_id]}, {[pt.Player]}, {[now]}));
-            view_room room_id
+            redirect (url (view_room room_id))
 
     in  player_list <- get_all_un_and_id_in_room room_id;
         return <xml><body>
@@ -473,7 +478,7 @@ and rem_mod (room_id : int) : transaction page =
             now <- now;
             dml (DELETE FROM mod WHERE Room = {[room_id]}
                                    AND Player = {[player_id]});
-            view_room room_id
+            redirect (url (view_room room_id))
 
     in  player_list <- get_all_un_and_id_in_room room_id;
         return <xml><body>

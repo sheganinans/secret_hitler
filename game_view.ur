@@ -3,22 +3,22 @@ open Utils
 open Tables
 open Types
 
-fun default_game_view {} : transaction xbody =
-    return <xml>gv</xml>
+fun game_view_and_client_handler (gt : game_table)
+    : transaction { View    : transaction (signal xbody)
+                  , Handler : Protocol.in_game_response -> transaction {}
+                  } =
 
-fun client_view_closure {}
-    : transaction (source xbody * (Protocol.in_game_response -> transaction {})) =
+    (players_s : source (list {Username : string, InGameId : int})) <- source [];
 
-    default_view <- default_game_view {};
-
-    (page : source xbody) <- source default_view;
+    (page_s : source xbody) <- source (<xml></xml>);
 
     (msg_s : source (list {Msg : string, Time : time})) <- source [];
 
     (rule_s : source (option rule_set)) <- source None;
 
     (game_s : source private_game_state) <- source { PublicGameState =
-                                                     { CurrentTurn =
+                                                     { CurrentStep = ChancellorSelectStep
+                                                     , CurrentTurn =
                                                        { President       = 0
                                                        , Chancellor      = 0
                                                        , FascistPolicies = 0
@@ -26,7 +26,6 @@ fun client_view_closure {}
                                                        , RejectCount     = 0
                                                        }
                                                      , GameHistory = []
-                                                     , ChatHistory = []
                                                      , Players     = []
                                                      }
                                                    , GameRole          = Watcher
@@ -63,32 +62,35 @@ fun client_view_closure {}
                                                              else v)
                                  else vn :: vl)
 
-        fun app_msg msg =
+        fun app_msg (msg : string) : transaction {} =
             now <- now;
             get_set msg_s (fn msg_s => { Msg = msg, Time = now } :: msg_s)
 
         fun public_rsp_handler (rsp : public_response) : transaction {} =
             case rsp of
-                PlayersOnTable _ => return {}
-              | Chat c =>
+                PlayersOnTable ps =>
+(*                alert (List.foldl (fn x acc => acc ^ "." ^ x.Username) "" ps);*)
+                set players_s ps
+              | NewPlayer p => get_set players_s (fn ps => p :: ps)
+              (*| Chat c =>
                 update_source_at_2 [#PublicGameState]
                                    [#ChatHistory]
-                                   game_s (fn hist => c :: hist)
+                                   game_s (fn hist => c :: hist)*)
               | RuleSet r => set rule_s (Some r)
               | PublicGameState pgame_s =>
                 update_source_at [#PublicGameState] game_s (fn _ => pgame_s)
               | NewTurn new_turn =>
-                app_msg "New Turn!";
+                app_msg "New Turn!"(*;
                 game <- get game_s;
-                let val pgame_s = game.PublicGameState
-                    val previous_turn = pgame_s.CurrentTurn
+                let val pgs = game.PublicGameState
+                    val previous_turn = pgs.CurrentTurn
                 in  set game_s (game -- #PublicGameState
                                  ++ { PublicGameState =
-                                      pgame_s -- #CurrentTurn -- #GameHistory
+                                      pgs -- #CurrentTurn -- #GameHistory
                                           ++ { CurrentTurn = new_turn
                                              , GameHistory =
-                                               previous_turn :: pgame_s.GameHistory }})
-                end
+                                               previous_turn :: pgs.GameHistory }})
+                end*)
               | TurnRole r => return {}
               | ChancellorChosen c =>
                 app_msg "Chancellor chosen";
@@ -148,7 +150,15 @@ fun client_view_closure {}
                   |    FascistRsp r =>    fascist_handler r
             end
 
-    in  return (page, fn msg => case msg of
-                                    PublicRsp rsp =>  public_rsp_handler rsp
-                                  | PrivateRsp rsp => private_rsp_handler rsp)
+    in  return { View =
+                 set page_s (<xml>
+                   <table><dyn signal={
+                         players <- signal players_s;
+                         return (List.mapX
+                                     (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
+                                     players)}></dyn></table></xml>);
+                 return (signal page_s)
+               , Handler = fn msg => case msg of
+                                         PublicRsp rsp =>  public_rsp_handler rsp
+                                       | PrivateRsp rsp => private_rsp_handler rsp }
     end
