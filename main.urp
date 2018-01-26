@@ -5,8 +5,10 @@ allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css
 #allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css
 database dbname=test hostaddr=127.0.0.1 user=postgres
 file /styles.css styles/styles.css
+jsFile static/bootstrap.min.js
 onError Error_page.error_page
 rewrite style Styles/* [-]
+rewrite style Bootstrap3/* [-]
 rewrite url Main/*
 rewrite url Frontend/*
 safeGet view_room

@@ -1,3 +1,5 @@
+open Bootstrap3
+
 open Protocol
 open Utils
 open Tables
@@ -41,6 +43,8 @@ fun game_view_and_client_handler (pt : player_table)
 
     (role_s : source turn_role) <- source Voter;
 
+    change_rules_id <- fresh;
+
     let val msg_loop =
             let fun go {} =
                 now <- now;
@@ -51,10 +55,33 @@ fun game_view_and_client_handler (pt : player_table)
 
         fun start_game {} = return {}
 
+        fun change_rules_view {} : xbody = <xml>
+          <div class="modal fade" id={change_rules_id} role="dialog">
+            <div class="modal-dialog" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <button class="close"
+                          data-dismiss="modal"
+                          aria-label="Close">
+                    <span aria-hidden="true">&times;</span></button>
+                  <h4 class="modal-title">Modal title</h4>
+                </div>
+                <div class="modal-body">
+                  <p>One fine body&hellip;</p>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn btn-default" data-dismiss="modal">Close</button>
+                  <button class="btn btn-primary">Save changes</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </xml>
+
         fun change_rules {} : transaction {} =
             alert "change rules"
 
-        fun default_view {} = <xml>
+        fun default_view {} : xbody = <xml>
           <dyn signal={players <- signal players_s;
                        rule_set <- signal rule_s;
                        return <xml>
@@ -84,8 +111,11 @@ fun game_view_and_client_handler (pt : player_table)
                                not (List.exists (fn m => pt.Player = m.Player) mods)
                             then <xml></xml>
                             else <xml>
-                              <tr><td><button onclick={fn _ => change_rules {}}>Change Rules
-                                      </button></td></tr>
+                              <tr><td>
+                                <button class="btn btn-primary"
+                                        data-toggle="modal"
+                                        data-target={"#" ^ show change_rules_id}>Change Rules</button>
+                              </td></tr>
                               {if List.length players < 5 || List.length players > 10
                                then <xml></xml>
                                else <xml><tr><td>
@@ -93,7 +123,8 @@ fun game_view_and_client_handler (pt : player_table)
                                  </button></td></tr></xml>}</xml>}
                            {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
                                        players}
-        </table></xml>}></dyn></xml>
+                           </table></xml>}></dyn>
+          {change_rules_view {}}</xml>
 
         fun display_vote_state {} : transaction xbody =
             vote_s <- get vote_s;

@@ -437,7 +437,9 @@ and view_room (room_id : int) : transaction page =
 
                     gv_ch <- Game_view.game_view_and_client_handler pt rt gt;
 
-                    return <xml><head><script code={
+                    return <xml><head>
+                      {Head.std_head}
+                      <script code={
                     let fun rsp_loop {} =
                             msg <- recv chan;
                             gv_ch.Handler msg;
