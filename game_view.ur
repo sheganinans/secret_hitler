@@ -3,10 +3,14 @@ open Utils
 open Tables
 open Types
 
-fun game_view_and_client_handler (gt : game_table)
+fun game_view_and_client_handler (pt : player_table)
+                                 (rt :   room_table)
+                                 (gt :   game_table)
     : transaction { View    : transaction (signal xbody)
                   , Handler : Protocol.in_game_response -> transaction {}
                   } =
+
+    mods <- queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]});
 
     (players_s : source (list {Username : string, InGameId : int})) <- source [];
 
@@ -45,6 +49,52 @@ fun game_view_and_client_handler (gt : game_table)
                 go {}
             in spawn (go {}) end
 
+        fun start_game {} = return {}
+
+        fun change_rules {} : transaction {} =
+            alert "change rules"
+
+        fun default_view {} = <xml>
+          <dyn signal={players <- signal players_s;
+                       rule_set <- signal rule_s;
+                       return <xml>
+                         <table>
+                           {case rule_set of
+                                None => <xml></xml>
+                              | Some rule_set => <xml>
+                                <tr><th>{[(if rule_set.KillPlayer
+                                           then "Player killed"
+                                           else "Turn skipped") ^ " as punishment."]}</th></tr>
+                                {if not rule_set.TimedGame
+                                 then <xml><tr><th>Game untimed</th></tr></xml>
+                                 else <xml>
+                                   <tr><th>Chancellor Nomination</th>
+                                     <td>{[rule_set.ChanNomTime]}</td></tr>
+                                   <tr><th>Governmant Vote</th>
+                                     <td>{[rule_set.GovVoteTime]}</td></tr>
+                                   <tr><th>President Discard</th>
+                                     <td>{[rule_set.PresDisTime]}</td></tr>
+                                   <tr><th>Chancellor Enaction</th>
+                                     <td>{[rule_set.ChanEnaTime]}</td></tr>
+                                   <tr><th>Executive Action</th>
+                                     <td>{[rule_set.ExecActTime]}</td></tr>
+                                 </xml>}
+                              </xml>}
+                           {if rt.OwnedBy <> pt.Player &&
+                               not (List.exists (fn m => pt.Player = m.Player) mods)
+                            then <xml></xml>
+                            else <xml>
+                              <tr><td><button onclick={fn _ => change_rules {}}>Change Rules
+                                      </button></td></tr>
+                              {if List.length players < 5 || List.length players > 10
+                               then <xml></xml>
+                               else <xml><tr><td>
+                                 <button onclick={fn _ => rpc (start_game {})}>Start Game
+                                 </button></td></tr></xml>}</xml>}
+                           {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
+                                       players}
+        </table></xml>}></dyn></xml>
+
         fun display_vote_state {} : transaction xbody =
             vote_s <- get vote_s;
             case vote_s of
@@ -68,19 +118,19 @@ fun game_view_and_client_handler (gt : game_table)
 
         fun public_rsp_handler (rsp : public_response) : transaction {} =
             case rsp of
-                PlayersOnTable ps =>
-(*                alert (List.foldl (fn x acc => acc ^ "." ^ x.Username) "" ps);*)
-                set players_s ps
+                PlayersOnTable ps => set players_s ps
               | NewPlayer p => get_set players_s (fn ps => p :: ps)
+              | PlayerLeaves i => get_set players_s (List.filter (fn p => p.InGameId <> i))
               (*| Chat c =>
                 update_source_at_2 [#PublicGameState]
                                    [#ChatHistory]
                                    game_s (fn hist => c :: hist)*)
               | RuleSet r => set rule_s (Some r)
               | PublicGameState pgame_s =>
+                set page_s (<xml>pgs</xml>);
                 update_source_at [#PublicGameState] game_s (fn _ => pgame_s)
               | NewTurn new_turn =>
-                app_msg "New Turn!"(*;
+                app_msg "New Turn!";
                 game <- get game_s;
                 let val pgs = game.PublicGameState
                     val previous_turn = pgs.CurrentTurn
@@ -90,7 +140,7 @@ fun game_view_and_client_handler (gt : game_table)
                                           ++ { CurrentTurn = new_turn
                                              , GameHistory =
                                                previous_turn :: pgs.GameHistory }})
-                end*)
+                end
               | TurnRole r => return {}
               | ChancellorChosen c =>
                 app_msg "Chancellor chosen";
@@ -151,14 +201,9 @@ fun game_view_and_client_handler (gt : game_table)
             end
 
     in  return { View =
-                 set page_s (<xml>
-                   <table><dyn signal={
-                         players <- signal players_s;
-                         return (List.mapX
-                                     (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
-                                     players)}></dyn></table></xml>);
+                 set page_s (default_view {});
                  return (signal page_s)
                , Handler = fn msg => case msg of
-                                         PublicRsp rsp =>  public_rsp_handler rsp
+                                         PublicRsp  rsp =>  public_rsp_handler rsp
                                        | PrivateRsp rsp => private_rsp_handler rsp }
     end

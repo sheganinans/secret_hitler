@@ -23,10 +23,12 @@ fun update_source_at_2 [nm1 :: Name] [nm2 :: Name] [t ::: Type] [rest1] [rest2]
                        (s : source $([nm1 = $([nm2 = t] ++ rest2)] ++ rest1))
                        (f : t -> t)
     : transaction {} =
-    ss <- get s;
-    let val ssnm1 = ss.nm1
-    in  set s (ss -- nm1 ++ {nm1 = ssnm1 -- nm2 ++ {nm2 = f ssnm1.nm2}})
-    end
+    get_set s (fn ss =>
+                  let val ssnm1 = ss.nm1
+                  in  (ss -- nm1
+                          ++ { nm1 = ssnm1 -- nm2
+                                           ++ { nm2 = f ssnm1.nm2 }})
+                  end)
 
 fun update_source_at_3 [nm1 :: Name] [nm2 :: Name] [nm3 :: Name]
                        [t ::: Type] [rest1] [rest2] [rest3]
@@ -36,10 +38,13 @@ fun update_source_at_3 [nm1 :: Name] [nm2 :: Name] [nm3 :: Name]
                        (s : source $([nm1 = $([nm2 = $([nm3 = t] ++ rest3)] ++ rest2)] ++ rest1))
                        (f : t -> t)
     : transaction {} =
-    ss <- get s;
-    let val (ssnm1, ssnm2) = (ss.nm1, ss.nm1.nm2)
-    in  set s (ss -- nm1 ++ {nm1 = ssnm1 -- nm2 ++ {nm2 = ssnm2 -- nm3 ++ {nm3 = f ssnm2.nm3}}})
-    end
+    get_set s (fn ss =>
+                  let val (ssnm1, ssnm2) = (ss.nm1, ss.nm1.nm2)
+                  in  (ss -- nm1
+                          ++ { nm1 = ssnm1 -- nm2
+                                           ++ { nm2 = ssnm2 -- nm3
+                                                            ++ { nm3 = f ssnm2.nm3 }}})
+                  end)
 
 fun fold_css (l : list css_class) : css_class = List.foldr (fn c s => classes c s) null l
 
@@ -64,9 +69,7 @@ fun shuffle [a] (deck : list a) : transaction (list a) =
 
 
 fun generate_top_3_cards (libs : int) (fasc : int) : transaction (bool * bool * bool) =
-    r1 <- rand;
-    r2 <- rand;
-    r3 <- rand;
+    r1 <- rand; r2 <- rand; r3 <- rand;
     let fun delta_deck (b : bool) (libs : int) (fasc : int) : int * int =
             if b
             then (libs - 1, fasc    )

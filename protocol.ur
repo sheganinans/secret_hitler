@@ -70,6 +70,7 @@ datatype in_game_response
 and public_response
   = PlayersOnTable   of list {InGameId : int, Username : string}
   | NewPlayer        of {InGameId : int, Username : string}
+  | PlayerLeaves     of int
 (*  | Chat             of chat_contents (* Chatting is a room level funtion, not game level. *) *)
   | RuleSet          of rule_set
   | PublicGameState  of public_game_state

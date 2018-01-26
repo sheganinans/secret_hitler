@@ -3,14 +3,23 @@ open Protocol
 open Tables
 open Utils
 
-fun on_view_room_load (pt : player_table) (rt : room_table) (gt : game_table) : transaction {} =
+fun on_view_room_load (pt : player_table) (gt : game_table) : transaction {} =
     curr_players <- get_players_playing gt;
+    rule_set <- oneRow1 (SELECT *
+                         FROM rule_set
+                         WHERE rule_set.Room = {[gt.Room]}
+                           AND rule_set.Game = {[gt.Game]});
+
     chan <- oneRow1 (SELECT player_in_game.Chan
                      FROM player_in_game
-                     WHERE player_in_game.Room = {[rt.Room]}
-                       AND player_in_game.Game = {[rt.CurrentGame]}
+                     WHERE player_in_game.Room = {[gt.Room]}
+                       AND player_in_game.Game = {[gt.Game]}
                        AND player_in_game.Player = {[pt.Player]});
-    send chan.Chan (PublicRsp (PlayersOnTable curr_players))
+
+    mapM_ (fn m => send chan.Chan (PublicRsp m))
+          (PlayersOnTable curr_players          ::
+           RuleSet (rule_set -- #Room -- #Game) ::
+           [])
 
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
@@ -426,7 +435,7 @@ and view_room (room_id : int) : transaction page =
                            AND Game = {[rt.CurrentGame]}
                            AND Player = {[pt.Player]});
 
-                    gv_ch <- Game_view.game_view_and_client_handler gt;
+                    gv_ch <- Game_view.game_view_and_client_handler pt rt gt;
 
                     return <xml><head><script code={
                     let fun rsp_loop {} =
@@ -435,7 +444,7 @@ and view_room (room_id : int) : transaction page =
                             rsp_loop {}
                     in spawn (rsp_loop {}) end}></script></head>
 
-                      <body onload={rpc (on_view_room_load pt rt gt)}>
+                      <body onload={rpc (on_view_room_load pt gt)}>
                         <table>
                           <tr><td><a link={view_invite room_id}>View Invite</a></td></tr>
                           <tr><td><active code={v <- gv_ch.View;
