@@ -435,7 +435,7 @@ and view_room (room_id : int) : transaction page =
                            AND Game = {[rt.CurrentGame]}
                            AND Player = {[pt.Player]});
 
-                    gv_ch <- Game_view.game_view_and_client_handler pt rt gt;
+                    gv_ch <- Game_view.game_view_and_client_handler (view_room room_id) pt rt gt;
 
                     return <xml><head>
                       {Head.std_head}

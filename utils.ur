@@ -1,5 +1,7 @@
 open Types
 
+fun cl (l : list css_class) : css_class = List.foldr (fn c s => classes c s) null l
+
 fun mapM_ [a] [b] (f : a -> transaction b) (x : list a) : transaction {} =
     _ <- List.mapM f x; return {}
 
