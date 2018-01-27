@@ -66,7 +66,7 @@ fun game_view_and_client_handler (view_room : transaction page)
             send_public_message gt (RuleSet r);
             redirect (url (view_room))
 
-        fun change_rules_view {} : transaction xbody =
+        fun change_rules_view {} : xbody =
             let fun z_if_none [nm :: Name] [rest] [[nm = float] ~ rest]
                               (rules : option $([nm = float] ++ rest))
                     : float = case rules of
@@ -79,7 +79,7 @@ fun game_view_and_client_handler (view_room : transaction page)
                                | Some r => r.nm
 
                 fun rules_form (rules : source (option rule_set)) =
-                    return <xml><dyn signal={
+                    <xml><dyn signal={
                       rules <- signal rules;
                       return <xml><table>
                         <tr><th>Kill Player as Punishment?</th>
@@ -105,8 +105,7 @@ fun game_view_and_client_handler (view_room : transaction page)
                                value={z_if_none [#ExecActTime] rules}/></td></tr>
                     </table></xml>}></dyn></xml>
 
-            in rules_form <- rules_form rule_s;
-               return <xml>
+            in  <xml>
                   <div class={cl (B.modal :: B.fade :: [])} id={change_rules_id} role="dialog">
                     <div class={B.modal_dialog} role="document">
                       <div class={B.modal_content}>
@@ -117,7 +116,7 @@ fun game_view_and_client_handler (view_room : transaction page)
                         </div>
                         <form>
                           <div class={B.modal_body}>
-                            {rules_form}
+                            {rules_form rule_s}
                           </div>
                           <div class={B.modal_footer}>
                             <button class={cl (B.btn :: B.btn_default :: [])}
@@ -125,17 +124,11 @@ fun game_view_and_client_handler (view_room : transaction page)
                             <submit class={cl (B.btn :: B.btn_primary :: [])}
                                     action={submit_new_rules}
                                     value="Change it!"/>
-                          </div>
-                        </form>
-                      </div>
-                    </div>
-                  </div>
-                </xml>
+               </div></form></div></div></div></xml>
             end
 
-        fun default_view {} : transaction xbody =
-            crv <- change_rules_view {};
-            return <xml>
+        fun default_view {} : xbody =
+            <xml>
               <dyn signal={
                 players <- signal players_s;
                 rule_set <- signal rule_s;
@@ -179,7 +172,7 @@ fun game_view_and_client_handler (view_room : transaction page)
                     {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
                                players}
                     </table></xml>}></dyn>
-              {crv}</xml>
+              {change_rules_view {}}</xml>
 
         fun display_vote_state {} : transaction xbody =
             vote_s <- get vote_s;
@@ -287,8 +280,7 @@ fun game_view_and_client_handler (view_room : transaction page)
             end
 
     in  return { View =
-                 dv <- default_view {};
-                 set page_s dv;
+                 set page_s (default_view {});
                  return (signal page_s)
                , Handler = fn msg => case msg of
                                          PublicRsp  rsp =>  public_rsp_handler rsp
