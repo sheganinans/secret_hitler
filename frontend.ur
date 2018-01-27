@@ -40,16 +40,19 @@ fun signup_page {} : transaction page =
                     redirect (url (main_menu {}))
             end
 
-    in  return <xml><body><form><table>
-      <tr><th>Signup</th></tr>
-      <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
-      <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
-      <tr><th/><td><submit action={submit_signup}/></td></tr>
+    in  return <xml><head>{Head.std_head}</head>
+      <body><form><table>
+        <tr><th>Signup</th></tr>
+        <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
+        <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
+        <tr><th/><td><submit action={submit_signup}/></td></tr>
     </table></form></body></xml>
     end
 
 
-and login_page {} : transaction page = return <xml><body>{login_form {}}</body></xml>
+and login_page {} : transaction page =
+    return <xml><head>{Head.std_head}</head>
+      <body>{login_form {}}</body></xml>
 
 and login_form {} : make_form = <xml><table>
   <tr><td><a link={main_menu {}}>Back to Main Menu</a></td></tr>
@@ -199,11 +202,11 @@ and kicked_body (rt : room_table) : xbody =
 
 and kicked (room_id : int) : transaction page =
     (_, rt) <- player_in_room_exn room_id;
-    return <xml><body>{kicked_body rt}</body></xml>
+    return <xml><head>{Head.std_head}</head><body>{kicked_body rt}</body></xml>
 
 and main_menu {} : transaction page =
     pt <- check_role Player;
-    return <xml><body>{main_menu_body {}}</body></xml>
+    return <xml><head>{Head.std_head}</head><body>{main_menu_body {}}</body></xml>
 
 and main_menu_body {} : xbody =
     <xml><table>
@@ -233,7 +236,7 @@ and new_room {} : transaction page =
                  VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}));
             redirect (url (view_room room_id))
 
-    in  return <xml><body><form>
+    in  return <xml><head>{Head.std_head}</head><body><form>
           <table>
             <tr><th>New Room</th></tr>
             <tr><th>Name</th><td><textbox{#RoomName}/></td></tr>
@@ -270,7 +273,7 @@ and submit_new_game (room_id : int) (rule_set : rule_set) : transaction page =
     redirect (url (view_room rt.Room))
 
 and new_game_page (room_id : int) {} : transaction page =
-    return <xml><body><form><table>
+    return <xml><head>{Head.std_head}</head><body><form><table>
       <tr><th>New Game: Time Table</th></tr>
       <tr><th>Kill Player as Punishment?</th><td><checkbox{#KillPlayer}/></td></tr>
       <tr><th>Timed Game?</th>               <td><checkbox{#TimedGame}/></td></tr>
@@ -284,7 +287,7 @@ and new_game_page (room_id : int) {} : transaction page =
 
 and new_game {} : transaction page =
     room_list <- select_rooms_controlled {};
-    return <xml><body>
+    return <xml><head>{Head.std_head}</head><body>
       {List.mapX (fn r => <xml><form><submit value={r.Nam}
                                              action={new_game_page r.Room}/>
                           </form></xml>)
@@ -296,7 +299,7 @@ and view_your_rooms {} : transaction page =
     case rl of
         [] => main_menu {}
       | rl =>
-        return <xml><body>
+        return <xml><head>{Head.std_head}</head><body>
           <table>{List.mapX (fn r => <xml><tr><td>
                                        <a link={view_room r.Room}>
                                          {[r.Nam]}</a></td></tr></xml>)
@@ -305,7 +308,7 @@ and view_your_rooms {} : transaction page =
 
 and view_public_rooms {} : transaction page =
     rl <- queryL1 (SELECT * FROM room WHERE room.Pass = NULL);
-    return <xml><body><table>
+    return <xml><head>{Head.std_head}</head><body><table>
       <tr><td><a link={main_menu {}}>Main Menu</a></td></tr>
       {List.mapX (fn r => <xml><tr><td>
                             <a link={join_room r.Room}>
@@ -315,7 +318,7 @@ and view_public_rooms {} : transaction page =
 
 and view_invite (room_id : int) : transaction page =
     (pt, rt) <- player_in_room_exn room_id;
-    return <xml><body><table>
+    return <xml><head>{Head.std_head}</head><body><table>
       <tr><th><a link={view_room room_id}>Back to {[rt.Nam]}</a></th></tr>
       <tr><th>Link:</th><td>
         <a link={view_room room_id}>
@@ -352,7 +355,7 @@ and join_room (room_id : int) : transaction page =
                      VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}));
                 view_room room_id
               | Some _ =>
-                return <xml><body><form><table>
+                return <xml><head>{Head.std_head}</head><body><form><table>
                   <tr><th>Pass</th><td><password{#Pass}/></td></tr>
                   <tr><td><submit action={submit_private_room_secret room_id}/></td></tr>
                 </table></form></body></xml>
@@ -377,7 +380,7 @@ and join_game (room_id : int) : transaction page =
 
     in  if rt.InGame
         then submit_join_game False {}
-        else return <xml><body>
+        else return <xml><head>{Head.std_head}</head><body>
           <table>
             <tr><td><form>
               <submit value="Playing"  action={submit_join_game  True}/></form></td></tr>
@@ -492,7 +495,7 @@ and rem_mod (room_id : int) : transaction page =
             redirect (url (view_room room_id))
 
     in  player_list <- get_all_un_and_id_in_room room_id;
-        return <xml><body>
+        return <xml><head>{Head.std_head}</head><body>
           {List.mapX (fn p =>
                          <xml><form>
                            <submit value={p.Username}
