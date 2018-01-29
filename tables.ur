@@ -478,6 +478,22 @@ fun get_players_playing (gt : game_table) : transaction (list { Username : strin
                      AND player_in_game.Watching = FALSE) AS PIG
              JOIN player ON PIG.Player = player.Player)
 
+fun get_starting_players (gt : game_table) : transaction (list { Username : string
+                                                               , Place    : int
+                                                               , Alive    : bool
+                                                          }) =
+    queryL (SELECT player.Username AS Username, PIG.Place AS Place, TRUE AS Alive
+             FROM (SELECT player_in_game.Player AS Player
+                     , table_ordering.Place AS Place
+                   FROM player_in_game
+                   JOIN table_ordering
+                     ON player_in_game.InGameId = table_ordering.InGameId
+                   WHERE player_in_game.Room = {[gt.Room]}
+                     AND player_in_game.Game = {[gt.Game]}
+                     AND player_in_game.Watching = FALSE) AS PIG
+             JOIN player ON PIG.Player = player.Player
+             ORDER BY RANDOM)
+
 fun alive_player_ordering (gt : game_table) : transaction (list table_ordering_table) =
     queryL1 (SELECT table_ordering.*
              FROM (table_ordering

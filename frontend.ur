@@ -1,25 +1,34 @@
+structure B = Bootstrap3
+
 open Auth
 open Protocol
 open Tables
 open Utils
 
 fun on_view_room_load (pt : player_table) (gt : game_table) : transaction {} =
-    curr_players <- get_players_playing gt;
-    rule_set <- oneRow1 (SELECT *
-                         FROM rule_set
-                         WHERE rule_set.Room = {[gt.Room]}
-                           AND rule_set.Game = {[gt.Game]});
+    room_table <- oneRow1 (SELECT *
+                           FROM room
+                           WHERE room.Room = {[gt.Room]});
+    if not room_table.InGame
+    then
+        curr_players <- get_players_playing gt;
+        rule_set <- oneRow1 (SELECT *
+                             FROM rule_set
+                             WHERE rule_set.Room = {[gt.Room]}
+                               AND rule_set.Game = {[gt.Game]});
 
-    chan <- oneRow1 (SELECT player_in_game.Chan
-                     FROM player_in_game
-                     WHERE player_in_game.Room = {[gt.Room]}
-                       AND player_in_game.Game = {[gt.Game]}
-                       AND player_in_game.Player = {[pt.Player]});
+        chan <- oneRow1 (SELECT player_in_game.Chan
+                         FROM player_in_game
+                         WHERE player_in_game.Room = {[gt.Room]}
+                           AND player_in_game.Game = {[gt.Game]}
+                           AND player_in_game.Player = {[pt.Player]});
 
-    mapM_ (fn m => send chan.Chan (PublicRsp m))
-          (PlayersOnTable curr_players          ::
-           RuleSet (rule_set -- #Room -- #Game) ::
-           [])
+        mapM_ (fn m => send chan.Chan (PublicRsp m))
+              (PlayersOnTable curr_players          ::
+               RuleSet (rule_set -- #Room -- #Game) ::
+               [])
+    else
+        return {}
 
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
@@ -402,11 +411,6 @@ and view_room (room_id : int) : transaction page =
     case rp_o of
         None   => join_room room_id
       | Some _ =>
-        ordering <- queryL1 (SELECT *
-                             FROM table_ordering
-                             WHERE table_ordering.Room = {[rt.Room]}
-                               AND table_ordering.Game = {[rt.CurrentGame]});
-
         let fun no_game_yet {} : transaction xbody = return <xml>No Game Yet</xml>
 
         in  mods <- queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]});
@@ -442,19 +446,18 @@ and view_room (room_id : int) : transaction page =
 
                     return <xml><head>
                       {Head.std_head}
-                      <script code={
-                    let fun rsp_loop {} =
-                            msg <- recv chan;
-                            gv_ch.Handler msg;
-                            rsp_loop {}
-                    in spawn (rsp_loop {}) end}></script></head>
+                      <script code={let fun rsp_loop {} =
+                                            msg <- recv chan;
+                                            gv_ch.Handler msg;
+                                            rsp_loop {}
+                                    in spawn (rsp_loop {}) end}/></head>
 
                       <body onload={rpc (on_view_room_load pt gt)}>
                         <table>
                           <tr><td><a link={view_invite room_id}>View Invite</a></td></tr>
                           <tr><td><active code={v <- gv_ch.View;
-                                                current v}>
-                    </active></td></tr></table></body></xml>
+                                                return (<xml><dyn signal={v}/></xml>)}/>
+                      </td></tr></table></body></xml>
         end
 
 and get_all_un_and_id_in_room (room_id : int) : transaction (list player_id_and_username) =

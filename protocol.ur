@@ -1,17 +1,5 @@
 open Types
 
-(* In room actions *)
-datatype in_room
-  = Set of set_action
-  | Mod of mod_action
-
-and set_action
-  = NickName of string
-
-and mod_action
-  = Ban of int
-  | Kick of { Player : int, Till : time }
-
 type public_game_state_t
   = [ CurrentStep = step
     , CurrentTurn =      govt_state
@@ -49,7 +37,7 @@ type private_game_state_t
   = [ PublicGameState   = public_game_state
     , GameRole          = game_role
     , KnownAffiliations = affiliations
-    , Top3CardsInDraw   = list { Turn : int, Cards : bool * bool * bool }
+    , Top3CardsInDraw   = list { Turn : int, Cards : side * side * side }
     ]
 
 type private_game_state = $private_game_state_t
@@ -68,8 +56,8 @@ datatype in_game_response
   | PrivateRsp of private_response
 
 and public_response
-  = PlayersOnTable   of list {InGameId : int, Username : string}
-  | NewPlayer        of {InGameId : int, Username : string}
+  = PlayersOnTable   of list { InGameId : int, Username : string }
+  | NewPlayer        of { InGameId : int, Username : string }
   | PlayerLeaves     of int
 (*  | Chat             of chat_contents (* Chatting is a room level funtion, not game level. *) *)
   | RuleSet          of rule_set
@@ -92,6 +80,7 @@ and private_response
   |  PresidentRsp of  president_response
   | ChancellorRsp of chancellor_response
   |    FascistRsp of    fascist_response
+  |        ModRsp of        mod_response
 
 and voter_response
     = VoteCapability of int
@@ -112,3 +101,10 @@ and chancellor_response
 
 and fascist_response
     = Affiliations of affiliations
+
+and mod_response
+    = GameCap of game_cap_response
+
+and game_cap_response
+    = StartGameCap of int
+    |   RemGameCap

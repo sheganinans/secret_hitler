@@ -5,6 +5,10 @@ open Utils
 open Tables
 open Types
 
+datatype cilent_state
+  = NewGame
+  | InGame
+
 fun game_view_and_client_handler (view_room : transaction page)
                                  (pt : player_table)
                                  (rt :   room_table)
@@ -22,6 +26,8 @@ fun game_view_and_client_handler (view_room : transaction page)
     (msg_s : source (list {Msg : string, Time : time})) <- source [];
 
     (rule_s : source (option rule_set)) <- source None;
+
+    (start_game_cap_s : source (option int)) <- source None;
 
     (game_s : source private_game_state) <- source { PublicGameState =
                                                      { CurrentStep = ChancellorSelectStep
@@ -54,7 +60,40 @@ fun game_view_and_client_handler (view_room : transaction page)
                 go {}
             in spawn (go {}) end
 
-        fun start_game {} : transaction {} = return {}
+        fun start_game {} : transaction {} =
+            room_t <- oneRow1 (SELECT *
+                             FROM room
+                             WHERE room.Room = {[rt.Room]});
+            if room_t.InGame
+            then return {}
+            else
+                players <- queryL1 (SELECT *
+                                    FROM player_in_game
+                                    WHERE player_in_game.Room = {[gt.Room]}
+                                      AND player_in_game.Game = {[gt.Game]}
+                                      AND player_in_game.Watching = FALSE);
+                if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
+                then return {}
+                else
+                    dml (UPDATE room
+                         SET InGame = TRUE
+                         WHERE Room = {[rt.Room]});
+
+                    starting_players <- get_starting_players gt;
+
+                    update_last_action gt;
+                    send_public_message gt (PublicGameState
+                                                { CurrentStep = ChancellorSelectStep
+                                                , CurrentTurn =
+                                                  { President       = 1
+                                                  , Chancellor      = 0
+                                                  , FascistPolicies = 0 (* TODO Alt rules *)
+                                                  , LiberalPolicies = 0 (* TODO Alt rules *)
+                                                  , RejectCount     = 0
+                                                  }
+                                                , GameHistory = []
+                                                , Players     = starting_players
+                                           })
 
         fun change {} : transaction {} = return {}
 
@@ -78,9 +117,9 @@ fun game_view_and_client_handler (view_room : transaction page)
                                  None => False
                                | Some r => r.nm
 
-                fun rules_form (rules : source (option rule_set)) =
+                fun rules_form {} =
                     <xml><dyn signal={
-                      rules <- signal rules;
+                      rules <- signal rule_s;
                       return <xml><table>
                         <tr><th>Kill Player as Punishment?</th>
                           <td><checkbox{#KillPlayer}
@@ -106,25 +145,26 @@ fun game_view_and_client_handler (view_room : transaction page)
                     </table></xml>}></dyn></xml>
 
             in  <xml>
-                  <div class={cl (B.modal :: B.fade :: [])} id={change_rules_id} role="dialog">
-                    <div class={B.modal_dialog} role="document">
-                      <div class={B.modal_content}>
-                        <div class={B.modal_header}>
-                          <button class={B.close} data-dismiss="modal" aria-label="Close">
-                            <span aria-hidden="true">&times;</span></button>
-                            <h4 class={B.modal_title}>Change Rules</h4>
-                        </div>
-                        <form>
-                          <div class={B.modal_body}>
-                            {rules_form rule_s}
-                          </div>
-                          <div class={B.modal_footer}>
-                            <button class={cl (B.btn :: B.btn_default :: [])}
-                                    data-dismiss="modal">Close</button>
-                            <submit class={cl (B.btn :: B.btn_primary :: [])}
-                                    action={submit_new_rules}
-                                    value="Change it!"/>
-               </div></form></div></div></div></xml>
+              <div class={cl (B.modal :: B.fade :: [])} id={change_rules_id} role="dialog">
+                <div class={B.modal_dialog} role="document">
+                  <div class={B.modal_content}>
+                    <div class={B.modal_header}>
+                      <button class={B.close} data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span></button>
+                        <h4 class={B.modal_title}>Change Rules</h4>
+                    </div>
+                    <form>
+                      <div class={B.modal_body}>
+                        {rules_form {}}
+                      </div>
+                      <div class={B.modal_footer}>
+                        <button class={cl (B.btn :: B.btn_default :: [])}
+                                data-dismiss="modal">Close</button>
+                        <submit class={cl (B.btn :: B.btn_primary :: [])}
+                                action={submit_new_rules}
+                                data-dismiss="modal"
+                                value="Change it!"/>
+            </div></form></div></div></div></xml>
             end
 
         fun default_view {} : xbody =
@@ -164,7 +204,7 @@ fun game_view_and_client_handler (view_room : transaction page)
                              data-toggle="modal"
                              data-target={"#" ^ show change_rules_id}>Change Rules</button>
                        </td></tr>
-                       {if List.length players < 5 || List.length players > 10
+                       {if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
                         then <xml></xml>
                         else <xml><tr><td>
                           <button onclick={fn _ => rpc (start_game {})}>Start Game
@@ -205,9 +245,13 @@ fun game_view_and_client_handler (view_room : transaction page)
                                    [#ChatHistory]
                                    game_s (fn hist => c :: hist)*)
               | RuleSet r => set rule_s (Some r)
-              | PublicGameState pgame_s =>
-                set page_s (<xml>pgs</xml>);
-                update_source_at [#PublicGameState] game_s (fn _ => pgame_s)
+              | PublicGameState pgs =>
+                set page_s (<xml>{List.mapX (fn p =>
+                                                <xml>Un:{[p.Username]}
+                                                  <br/>Place:{[p.Place]}
+                                                  <br/><br/></xml>)
+                                            pgs.Players}</xml>);
+                update_source_at [#PublicGameState] game_s (fn _ => pgs)
               | NewTurn new_turn =>
                 app_msg "New Turn!";
                 game <- get game_s;
@@ -272,11 +316,20 @@ fun game_view_and_client_handler (view_room : transaction page)
                     case r of
                         Affiliations as => return {}
 
+                fun mod_handler r =
+                    case r of
+                        GameCap r =>
+                        set start_game_cap_s
+                            (case r of
+                                 StartGameCap c => Some c
+                               |   RemGameCap   => None)
+
             in  case rsp of
                          VoterRsp r =>      voter_handler r
                   |  PresidentRsp r =>  president_handler r
                   | ChancellorRsp r => chancellor_handler r
                   |    FascistRsp r =>    fascist_handler r
+                  |        ModRsp r =>        mod_handler r
             end
 
     in  return { View =
