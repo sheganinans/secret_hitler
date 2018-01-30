@@ -6,29 +6,62 @@ open Tables
 open Utils
 
 fun on_view_room_load (pt : player_table) (gt : game_table) : transaction {} =
+    rule_set <- oneRow1 (SELECT *
+                         FROM rule_set
+                         WHERE rule_set.Room = {[gt.Room]}
+                           AND rule_set.Game = {[gt.Game]});
+
+    chan <- oneRow1 (SELECT player_in_game.Chan
+                     FROM player_in_game
+                     WHERE player_in_game.Room = {[gt.Room]}
+                       AND player_in_game.Game = {[gt.Game]}
+                       AND player_in_game.Player = {[pt.Player]});
+
     room_table <- oneRow1 (SELECT *
                            FROM room
                            WHERE room.Room = {[gt.Room]});
     if not room_table.InGame
     then
         curr_players <- get_players_playing gt;
-        rule_set <- oneRow1 (SELECT *
-                             FROM rule_set
-                             WHERE rule_set.Room = {[gt.Room]}
-                               AND rule_set.Game = {[gt.Game]});
-
-        chan <- oneRow1 (SELECT player_in_game.Chan
-                         FROM player_in_game
-                         WHERE player_in_game.Room = {[gt.Room]}
-                           AND player_in_game.Game = {[gt.Game]}
-                           AND player_in_game.Player = {[pt.Player]});
 
         mapM_ (fn m => send chan.Chan (PublicRsp m))
               (PlayersOnTable curr_players          ::
                RuleSet (rule_set -- #Room -- #Game) ::
                [])
     else
-        return {}
+        step <- oneRow1 (SELECT turn.CurrentStep
+                         FROM turn
+                         WHERE turn.Room = {[gt.Room]}
+                           AND turn.Game = {[gt.Game]}
+                           AND turn.Turn = {[gt.CurrentTurn]});
+
+        curr_govt_state <- oneRow1 (SELECT turn.President
+                                      , turn.Chancellor
+                                      , turn.LiberalPolicies
+                                      , turn.FascistPolicies
+                                      , turn.RejectCount
+                                    FROM turn
+                                    WHERE turn.Room = {[gt.Room]}
+                                      AND turn.Game = {[gt.Game]}
+                                      AND turn.Turn = {[gt.CurrentTurn]});
+
+        govt_history <- queryL1 (SELECT turn.President
+                                   , turn.Chancellor
+                                   , turn.LiberalPolicies
+                                   , turn.FascistPolicies
+                                   , turn.RejectCount
+                                 FROM turn
+                                 WHERE turn.Room = {[gt.Room]}
+                                   AND turn.Game = {[gt.Game]}
+                                   AND turn.Turn <> {[gt.CurrentTurn]}
+                                 ORDER BY turn.Turn);
+
+        send chan.Chan (PublicRsp (PublicGameState
+                                       { CurrentStep = deserialize step.CurrentStep
+                                       , CurrentTurn = curr_govt_state
+                                       , GameHistory = govt_history
+                                       , Players = []
+                       }))
 
 fun signup_page {} : transaction page =
     let fun submit_signup (signup : player_name_and_pass) : transaction page =
@@ -58,72 +91,12 @@ fun signup_page {} : transaction page =
     </table></form></body></xml>
     end
 
-
-and login_page {} : transaction page =
-    return <xml><head>{Head.std_head}</head>
-      <body>{login_form {}}</body></xml>
-
-and login_form {} : make_form = <xml><table>
-  <tr><td><a link={main_menu {}}>Back to Main Menu</a></td></tr>
-  <tr><td><a link={signup_page {}}>Need to Signup?</a></td></tr>
-  <tr><td>
-    <form>
-      <table>
-        <tr>Login!</tr>
-        <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
-        <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
-        <tr><th/><td><submit action={submit_login}/></td></tr>
-       </table></form></td></tr>
-  </table></xml>
-
-and submit_login (login_form : player_name_and_pass) : transaction page =
-    let val pw_hs = Auth.basic_hash login_form.PassHash
-    in  hp_o <- oneOrNoRows1 (SELECT player.PassHash
-                              FROM player
-                              WHERE player.Username = {[login_form.Username]});
-        case hp_o of
-            None => login_page {}
-          | Some hp =>
-            if hp.PassHash <> pw_hs
-            then redirect (url (login_page {}))
-            else set_username_cookie login_form.Username pw_hs;
-                 redirect (url (main_menu {}))
-    end
-
-and check_login (r : role) : transaction (result player_table string) =
-    let val err = "Please login."
-    in c <- getCookie username_and_pass;
-       case c of
-           None   => return (Err err)
-         | Some c =>
-           p_o <- oneOrNoRows1 (SELECT *
-                                FROM player
-                                WHERE player.Username = {[c.Username]}
-                                  AND player.PassHash = {[c.PassHash]});
-           case p_o of
-               None   => return (Err err)
-             | Some p =>
-               if p.PassHash = c.PassHash
-               then let fun check r b =
-                            if not b
-                            then return (Err <| "Must be " ^ show r ^ " to do that.")
-                            else return (Ok p)
-                    in check r (case r of Admin  => is_admin c.Username
-                                        | Player => True)
-                    end
-               else return (Err err)
-    end
-
-and check_role (role : role) : transaction player_table =
-    check <- check_login role;
-    case check of
-        Err (_ : string) => error <xml>{login_form {} }</xml>
-      | Ok   pt          => return pt
+and check_role r = check_role_closure login_form r
 
 and room_exists_exn (room_id : int) : transaction room_table =
     rt_o <- oneOrNoRows1 (SELECT * FROM room WHERE room.Room = {[room_id]});
     case rt_o of
-        None => error <xml>(*{main_menu_body {}}*)</xml>
+        None => error <xml>(*{LV.main_menu_body {}}*)</xml>
       | Some rt => return rt
 
 and player_in_room_exn (room_id : int) : transaction (player_table * room_table) =
@@ -173,9 +146,9 @@ and player_in_game_on_turn_exn (room_id : int)
                    WHERE game.Room = {[rt.Room]}
                      AND game.Game = {[rt.CurrentGame]});
     pc <- oneRow1 (SELECT *
-                    FROM player_in_game
-                    WHERE player_in_game.Room = {[rt.Room]}
-                      AND player_in_game.Game = {[rt.CurrentGame]});
+                       FROM player_in_game
+                       WHERE player_in_game.Room = {[rt.Room]}
+                         AND player_in_game.Game = {[rt.CurrentGame]});
     ot <- oneRow1 (SELECT *
                    FROM table_ordering
                    WHERE table_ordering.Room = {[rt.Room]}
@@ -188,7 +161,6 @@ and player_in_game_on_turn_exn (room_id : int)
                      AND turn.Turn = {[gt.CurrentTurn]});
     return { Player = pt, Room = rt, Game =  gt, Conn = pc, TableOrder =  ot, Turn = tt }
 
-
 and select_rooms_controlled {} : transaction (list room_table) =
     pt <- check_role Player;
     rl_1 <- queryL1 (SELECT * FROM room WHERE room.OwnedBy = {[pt.Player]});
@@ -199,6 +171,37 @@ and select_rooms_controlled {} : transaction (list room_table) =
                          AND mod.Player = {[pt.Player]}));
     return (List.append rl_1 rl_2)
 
+and login_page {} : transaction page =
+    return <xml><head>{Head.std_head}</head>
+      <body>{login_form {}}</body></xml>
+
+and login_form {} : make_form = <xml><table>
+  <tr><td><a link={main_menu {}}>Back to Main Menu</a></td></tr>
+  <tr><td><a link={signup_page {}}>Need to Signup?</a></td></tr>
+  <tr><td>
+    <form>
+      <table>
+        <tr>Login!</tr>
+        <tr><th>Username:</th><td><textbox{#Username}/></td></tr>
+        <tr><th>Password:</th><td><password{#PassHash}/></td></tr>
+        <tr><th/><td><submit class={cl (B.btn :: B.btn_default :: [])}
+                             action={submit_login}/></td></tr>
+       </table></form></td></tr>
+  </table></xml>
+
+and submit_login (login_form : player_name_and_pass) : transaction page =
+    let val pw_hs = Auth.basic_hash login_form.PassHash
+    in  hp_o <- oneOrNoRows1 (SELECT player.PassHash
+                              FROM player
+                              WHERE player.Username = {[login_form.Username]});
+        case hp_o of
+            None => login_page {}
+          | Some hp =>
+            if hp.PassHash <> pw_hs
+            then redirect (url (login_page {}))
+            else set_username_cookie login_form.Username pw_hs;
+                 redirect (url (main_menu {}))
+    end
 
 and kick_player (room_id : int) : transaction page = return <xml></xml>
 
@@ -218,12 +221,29 @@ and main_menu {} : transaction page =
     return <xml><head>{Head.std_head}</head><body>{main_menu_body {}}</body></xml>
 
 and main_menu_body {} : xbody =
-    <xml><table>
-      <tr><td><a link={new_room {}}>New Room</a></td></tr>
-      <tr><td><a link={new_game {}}>New Game</a></td></tr>
-      <tr><td><a link={view_your_rooms {}}>View Your Rooms</a></td></tr>
-      <tr><td><a link={view_public_rooms {}}>View Public Rooms</a></td></tr>
-    </table></xml>
+    <xml>
+      <div class={B.container}>
+        <div class={B.row}>
+          <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+            <a link={view_public_rooms {}}>
+              <button class={cl (B.btn :: B.btn_default :: [])}>View Public Rooms
+              </button></a></div></div>
+        <div class={B.row}>
+          <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+            <a link={new_game {}}>
+              <button class={cl (B.btn :: B.btn_default :: [])}>New Game
+              </button></a></div></div>
+        <div class={B.row}>
+          <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+            <a link={view_your_rooms {}}>
+              <button class={cl (B.btn :: B.btn_default :: [])}>View Your Rooms
+              </button></a></div></div>
+        <div class={B.row}>
+          <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+            <a link={new_room {}}>
+              <button class={cl (B.btn :: B.btn_default :: [])}>New Room
+              </button></a></div></div>
+    </div></xml>
 
 and new_room {} : transaction page =
     let fun submit_new_room room_form : transaction page =
@@ -245,13 +265,18 @@ and new_room {} : transaction page =
                  VALUES ({[room_id]}, {[pt.Player]}, {[pt.Player]}, {[now]}));
             redirect (url (view_room room_id))
 
-    in  return <xml><head>{Head.std_head}</head><body><form>
-          <table>
-            <tr><th>New Room</th></tr>
-            <tr><th>Name</th><td><textbox{#RoomName}/></td></tr>
-            <tr><th>Private?</th><td><checkbox{#Private}/></td></tr>
-            <tr><td><submit action={submit_new_room}/></td></tr>
-          </table></form></body></xml>
+    in  return <xml><head>{Head.std_head}</head><body><a link={main_menu {}}>
+                <button class={cl (B.btn :: B.btn_primary :: [])}>Main Menu
+            </button></a>
+            <form>
+              <table>
+                <tr><th>New Room</th></tr>
+                <tr><th>Name</th><td><textbox{#RoomName}/></td></tr>
+                <tr><th>Private?</th><td><checkbox{#Private}/></td></tr>
+                <tr><td><submit class={cl (B.btn :: B.btn_default :: [])}
+                                value="New Room"
+                                action={submit_new_room}/></td></tr>
+    </table></form></body></xml>
     end
 
 and submit_new_game (room_id : int) (rule_set : rule_set) : transaction page =
@@ -297,11 +322,21 @@ and new_game_page (room_id : int) {} : transaction page =
 and new_game {} : transaction page =
     room_list <- select_rooms_controlled {};
     return <xml><head>{Head.std_head}</head><body>
-      {List.mapX (fn r => <xml><form><submit value={r.Nam}
-                                             action={new_game_page r.Room}/>
-                          </form></xml>)
-                 room_list}
-    </body></xml>
+      <div class={B.container}>
+        <div class={B.row}>
+          <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+            <a link={main_menu {}}>
+              <button class={cl (B.btn :: B.btn_primary :: [])}>Main Menu
+              </button></a></div></div>
+        {List.mapX (fn r => <xml>
+          <div class={B.row}>
+            <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+              <form><submit value={r.Nam}
+                            action={new_game_page r.Room}
+                            class={cl (B.btn :: B.btn_default :: [])}/>
+            </form></div></div></xml>)
+                   (List.filter (fn r => not r.InGame) room_list)}
+    </div></body></xml>
 
 and view_your_rooms {} : transaction page =
     rl <- select_rooms_controlled {};
@@ -309,21 +344,38 @@ and view_your_rooms {} : transaction page =
         [] => main_menu {}
       | rl =>
         return <xml><head>{Head.std_head}</head><body>
-          <table>{List.mapX (fn r => <xml><tr><td>
-                                       <a link={view_room r.Room}>
-                                         {[r.Nam]}</a></td></tr></xml>)
-                            rl}
-        </table></body></xml>
+          <div class={B.container}>
+            <div class={B.row}>
+              <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+                <a link={main_menu {}}>
+                  <button class={cl (B.btn :: B.btn_primary :: [])}>Main Menu
+            </button></a></div></div>
+            {List.mapX (fn r => <xml>
+              <div class={B.row}>
+                <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+                  <a link={view_room r.Room}>
+                    <button class={cl (B.btn :: B.btn_default :: [])}>
+                      {[r.Nam]}</button></a></div></div></xml>) (* TODO truncate long names *)
+                       rl}
+        </div></body></xml>
 
 and view_public_rooms {} : transaction page =
     rl <- queryL1 (SELECT * FROM room WHERE room.Pass = NULL);
-    return <xml><head>{Head.std_head}</head><body><table>
-      <tr><td><a link={main_menu {}}>Main Menu</a></td></tr>
-      {List.mapX (fn r => <xml><tr><td>
-                            <a link={join_room r.Room}>
-                              {[show r.Nam]}</a></td></tr></xml>)
+    return <xml><head>{Head.std_head}</head><body>
+      <div class={B.container}>
+        <div class={B.row}>
+          <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+            <a link={main_menu {}}>
+              <button class={cl (B.btn :: B.btn_primary :: [])}>Main Menu
+              </button></a></div></div>
+      {List.mapX (fn r => <xml>
+        <div class={B.row}>
+          <div class={cl (B.col_lg_1 :: B.text_center :: [])}>
+            <a link={join_room r.Room}>
+              <button class={cl (B.btn :: B.btn_default :: [])}>
+                {[show r.Nam]}</button></a></div></div></xml>)
                  rl}
-    </table></body></xml>
+    </div></body></xml>
 
 and view_invite (room_id : int) : transaction page =
     (pt, rt) <- player_in_room_exn room_id;

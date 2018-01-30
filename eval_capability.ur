@@ -1,9 +1,17 @@
-open Frontend
+open Auth
+open Tables
+open Types
+
+structure A
+  = Auth.AuthSystem
+        (struct
+             fun check_role r = check_role_closure (fn {} => <xml></xml>) r
+         end)
 
 fun eval_capability (arg : option capability_arg)
                     (room_id : int)
                     (cap_id  : int) : transaction {} =
-    pigot <- player_in_game_on_turn_exn room_id;
+    pigot <- A.player_in_game_on_turn_exn room_id;
     let val (rt, gt, tt, ot) = (pigot.Room, pigot.Game, pigot.Turn, pigot.TableOrder)
 
         val send_public_message = send_public_message gt
@@ -136,11 +144,16 @@ fun eval_capability (arg : option capability_arg)
                         update_last_action gt;
                         incr_curr_turn rt;
 
-                        send_public_message (NewTurn { President       =  pres_pid
-                                                     , Chancellor      = chanc_pid
-                                                     , LiberalPolicies = lib_pol
-                                                     , FascistPolicies = fas_pol
-                                                     , RejectCount     = 0 })
+                        send_public_message
+                            (PublicGameState
+                                 { CurrentStep = ChancellorSelectStep
+                                 , CurrentTurn = { President       =  pres_pid
+                                                 , Chancellor      = chanc_pid
+                                                 , LiberalPolicies = lib_pol
+                                                 , FascistPolicies = fas_pol
+                                                 , RejectCount     = 0 }
+                                 , GameHistory = []
+                                 , Players = [] })
                     end
             end
 

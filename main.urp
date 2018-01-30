@@ -1,5 +1,4 @@
 #allow env PASSWORD_SECRET
-#allow url /styles.css
 allow url https://code.jquery.com/jquery-2.1.4.min.js
 allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css
 #allow url https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css
@@ -9,6 +8,7 @@ jsFile static/bootstrap.min.js
 onError Error_page.error_page
 rewrite style Styles/* [-]
 rewrite style Bootstrap3/* [-]
+rewrite style Frontend/* [-]
 rewrite url Main/*
 rewrite url Frontend/*
 safeGet view_room
@@ -18,6 +18,7 @@ sql secret_dio.sql
 
 $/list
 $/option
+$/string
 bootstrap/bootstrap
 bootstrap/bootstrap3
 consts
@@ -30,8 +31,9 @@ error_page
 head
 auth
 server_response
+eval_capability
 game_view
 frontend
-eval_capability
 game_loop
+
 main

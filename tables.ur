@@ -358,10 +358,10 @@ fun no_longer_in_game [rest] [room_id_t ~ rest]
 
 fun active_games {} : transaction (list game_table) =
     queryL1 (SELECT game.*
-             FROM (game
-                 INNER JOIN room
-                 ON  game.Room = room.Room
-                 AND game.Game = room.CurrentGame))
+             FROM game
+             JOIN room
+               ON  game.Room = room.Room
+               AND game.Game = room.CurrentGame)
 
 fun current_turn_state (gt : game_table) : transaction turn_table =
     oneRow1 (SELECT *
