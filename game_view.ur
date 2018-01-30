@@ -207,7 +207,8 @@ fun game_view_and_client_handler (view_room : transaction page)
                        {if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
                         then <xml></xml>
                         else <xml><tr><td>
-                          <button onclick={fn _ => rpc (start_game {})}>Start Game
+                          <button class={cl (B.btn :: B.btn_default :: [])}
+                                  onclick={fn _ => rpc (start_game {})}>Start Game
                             </button></td></tr></xml>}</xml>}
                     {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
                                players}
