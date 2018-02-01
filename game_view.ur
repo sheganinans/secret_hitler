@@ -9,25 +9,166 @@ datatype cilent_state
   = NewGame
   | InGame
 
-fun game_view_and_client_handler (view_room : transaction page)
-                                 (pt : player_table)
-                                 (rt :   room_table)
-                                 (gt :   game_table)
-    : transaction { View    : transaction (signal xbody)
-                  , Handler : Protocol.in_game_response -> transaction {}
-                  } =
+structure A = Auth.AuthSystem(struct
+                                  fun check_role r =
+                                      Auth.check_role_closure (fn _ => <xml></xml>) r
+                              end)
 
-    mods <- queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]});
+fun get_mods (i : int) : transaction (list room_player_relation) =
+    queryL1 (SELECT * FROM mod WHERE mod.Room = {[i]})
 
-    (players_s : source (list {Username : string, InGameId : int})) <- source [];
+fun get_curr_game (rt : room_table) =
+    oneRow1 (SELECT *
+             FROM game
+             WHERE game.Room = {[rt.Room]}
+               AND game.Game = {[rt.CurrentGame]})
 
-    (page_s : source xbody) <- source (<xml></xml>);
+fun get_mods (rt : room_table) : transaction (list room_player_relation) =
+    queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]})
 
-    (msg_s : source (list {Msg : string, Time : time})) <- source [];
+fun rule_changing_widget (rt : room_table)
+                         (gt : game_table)
+    : transaction { Modal : xbody
+                  , Button: xbody
+                  , Sources : { KillPlayer  : source bool
+                              , TimedGame   : source bool
+                              , ChanNomTime : source (option float)
+                              , GovVoteTime : source (option float)
+                              , PresDisTime : source (option float)
+                              , ChanEnaTime : source (option float)
+                              , ExecActTime : source (option float)
+                  }} =
 
-    (rule_s : source (option rule_set)) <- source None;
+    kill_p <- source False;
+    timed_g <- source False;
+    cn_time <- source (Some 0.);
+    gv_time <- source (Some 0.);
+    pd_time <- source (Some 0.);
+    ce_time <- source (Some 0.);
+    ea_time <- source (Some 0.);
 
-    (start_game_cap_s : source (option int)) <- source None;
+    change_rules_id <- fresh;
+
+    let fun submit_new_rules r : transaction {} =
+            dml (DELETE FROM rule_set
+                        WHERE Room = {[rt.Room]}
+                          AND Game = {[rt.CurrentGame]});
+            set_rules rt r;
+            send_public_message gt (RuleSet r)
+
+        fun change_rules_view {} : xbody = <xml>
+          <div class={cl (B.modal :: B.fade :: [])} id={change_rules_id} role="dialog">
+            <div class={B.modal_dialog} role="document">
+              <div class={B.modal_content}>
+                <div class={B.modal_header}>
+                  <button class={B.close} data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span></button>
+                    <h4 class={B.modal_title}>Change Rules</h4>
+                </div>
+                <div class={B.modal_body}>
+                  <table>
+                    <tr><th>Kill Player as Punishment?</th>
+                      <td><ccheckbox source={kill_p}/></td></tr>
+                    <tr><th>Timed Game?</th>
+                      <td><ccheckbox source={timed_g}/></td></tr>
+                    <tr><th>Chancellor Nomination</th>
+                      <td><cnumber source={cn_time}/></td></tr>
+                    <tr><th>Government Vote</th>
+                      <td><cnumber source={gv_time}/></td></tr>
+                    <tr><th>President Discard</th>
+                      <td><cnumber source={pd_time}/></td></tr>
+                    <tr><th>Chancellor Enaction</th>
+                      <td><cnumber source={ce_time}/></td></tr>
+                    <tr><th>Executive Action</th>
+                      <td><cnumber source={ea_time}/></td></tr>
+                  </table>
+                </div>
+                <div class={B.modal_footer}>
+                  <button class={cl (B.btn :: B.btn_default :: [])}
+                          data-dismiss="modal">Close</button>
+                  <button class={cl (B.btn :: B.btn_primary :: [])}
+                          onclick={fn _ =>
+                                      kill_p <- get kill_p;
+                                      timed_g <- get timed_g;
+                                      cn_time <- get cn_time;
+                                      gv_time <- get gv_time;
+                                      pd_time <- get pd_time;
+                                      ce_time <- get ce_time;
+                                      ea_time <- get ea_time;
+                                      rpc (submit_new_rules
+                                               { KillPlayer = kill_p
+                                               , TimedGame  = timed_g
+                                               , ChanNomTime = z_if_n cn_time
+                                               , GovVoteTime = z_if_n gv_time
+                                               , PresDisTime = z_if_n pd_time
+                                               , ChanEnaTime = z_if_n ce_time
+                                               , ExecActTime = z_if_n ea_time
+                                          })
+                                  }
+                          data-dismiss="modal"
+                          value="Change it!"/>
+        </div></div></div></div></xml>
+
+        fun rule_view {} : xbody =
+            <xml>
+              <dyn signal={
+                kill_p  <- signal kill_p;
+                timed_g <- signal timed_g;
+                cn_time <- signal cn_time;
+                gv_time <- signal gv_time;
+                pd_time <- signal pd_time;
+                ce_time <- signal ce_time;
+                ea_time <- signal ea_time;
+                return <xml>
+                  <table>
+                    <tr><th>{[(if kill_p
+                               then "Player killed"
+                               else "Turn skipped") ^ " as punishment."]}</th></tr>
+                    {if not timed_g
+                     then <xml><tr><th>Game untimed</th></tr></xml>
+                     else <xml>
+                       <tr><th>Chancellor Nomination</th>
+                         <td>{[cn_time]}</td></tr>
+                       <tr><th>Governmant Vote</th>
+                         <td>{[gv_time]}</td></tr>
+                       <tr><th>President Discard</th>
+                         <td>{[pd_time]}</td></tr>
+                       <tr><th>Chancellor Enaction</th>
+                         <td>{[ce_time]}</td></tr>
+                       <tr><th>Executive Action</th>
+                         <td>{[ea_time]}</td></tr>
+                       </xml>}</table></xml>}/></xml>
+
+    in  return { Modal = <xml></xml>
+               , Button = <xml><button class={cl (B.btn :: B.btn_primary :: [])}
+                                       data-toggle="modal"
+                                       data-target={"#" ^ show change_rules_id}>Change Rules
+                      </button></xml>
+               , Sources = { KillPlayer  = kill_p
+                           , TimedGame   = timed_g
+                           , ChanNomTime = cn_time
+                           , GovVoteTime = gv_time
+                           , PresDisTime = pd_time
+                           , ChanEnaTime = ce_time
+                           , ExecActTime = ea_time
+                           }}
+    end
+
+fun handler (pt : player_table)
+            (rt :   room_table)
+            (gt :   game_table)
+            (page_s : source xbody)
+            (m : Protocol.in_game_response) : transaction {} =
+
+    widget <- rule_changing_widget rt gt;
+
+    mods <- rpc (get_mods rt);
+
+    players_s <- source [];
+
+    msg_s <- source [];
+
+    start_game_cap_s <- source None;
 
     (game_s : source private_game_state) <- source { PublicGameState =
                                                      { CurrentStep = ChancellorSelectStep
@@ -46,11 +187,9 @@ fun game_view_and_client_handler (view_room : transaction page)
                                                    , Top3CardsInDraw   = []
                                                    };
 
-    (vote_s : source (option (list {Place : int, Vote : bool}))) <- source None;
+    vote_s <- source None;
 
-    (role_s : source turn_role) <- source Voter;
-
-    change_rules_id <- fresh;
+    role_s <- source Voter;
 
     let val msg_loop =
             let fun go {} =
@@ -59,167 +198,6 @@ fun game_view_and_client_handler (view_room : transaction page)
                 sleep 3;
                 go {}
             in spawn (go {}) end
-
-        fun start_game {} : transaction {} =
-            room_t <- oneRow1 (SELECT *
-                             FROM room
-                             WHERE room.Room = {[rt.Room]});
-            if room_t.InGame
-            then return {}
-            else
-                players <- queryL1 (SELECT *
-                                    FROM player_in_game
-                                    WHERE player_in_game.Room = {[gt.Room]}
-                                      AND player_in_game.Game = {[gt.Game]}
-                                      AND player_in_game.Watching = FALSE);
-                if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
-                then return {}
-                else
-                    dml (UPDATE room
-                         SET InGame = TRUE
-                         WHERE Room = {[rt.Room]});
-
-                    starting_players <- get_starting_players gt;
-
-                    update_last_action gt;
-                    send_public_message gt (PublicGameState
-                                                { CurrentStep = ChancellorSelectStep
-                                                , CurrentTurn =
-                                                  { President       = 1
-                                                  , Chancellor      = 0
-                                                  , FascistPolicies = 0 (* TODO Alt rules *)
-                                                  , LiberalPolicies = 0 (* TODO Alt rules *)
-                                                  , RejectCount     = 0
-                                                  }
-                                                , GameHistory = []
-                                                , Players     = starting_players
-                                           })
-
-        fun change {} : transaction {} = return {}
-
-        fun submit_new_rules r : transaction page =
-            dml (DELETE FROM rule_set
-                 WHERE Room = {[rt.Room]}
-                   AND Game = {[rt.CurrentGame]});
-            set_rules rt r;
-            send_public_message gt (RuleSet r);
-            redirect (url (view_room))
-
-        fun change_rules_view {} : xbody =
-            let fun z_if_none [nm :: Name] [rest] [[nm = float] ~ rest]
-                              (rules : option $([nm = float] ++ rest))
-                    : float = case rules of
-                                  None => 0.
-                                | Some r => r.nm
-                fun f_if_none [nm :: Name] [rest] [[nm = bool] ~ rest]
-                              (rules : option $([nm = bool] ++ rest))
-                    : bool = case rules of
-                                 None => False
-                               | Some r => r.nm
-
-                fun rules_form {} =
-                    <xml><dyn signal={
-                      rules <- signal rule_s;
-                      return <xml><table>
-                        <tr><th>Kill Player as Punishment?</th>
-                          <td><checkbox{#KillPlayer}
-                               checked={f_if_none [#KillPlayer] rules}/></td></tr>
-                        <tr><th>Timed Game?</th>
-                          <td><checkbox{#TimedGame}
-                               checked={f_if_none [#TimedGame] rules}/></td></tr>
-                        <tr><th>Chancellor Nomination</th>
-                          <td><number{#ChanNomTime}
-                               value={z_if_none [#ChanNomTime] rules}/></td></tr>
-                        <tr><th>Government Vote</th>
-                          <td><number{#GovVoteTime}
-                               value={z_if_none [#GovVoteTime] rules}/></td></tr>
-                        <tr><th>President Discard</th>
-                          <td><number{#PresDisTime}
-                               value={z_if_none [#PresDisTime] rules}/></td></tr>
-                        <tr><th>Chancellor Enaction</th>
-                          <td><number{#ChanEnaTime}
-                               value={z_if_none [#ChanEnaTime] rules}/></td></tr>
-                        <tr><th>Executive Action</th>
-                          <td><number{#ExecActTime}
-                               value={z_if_none [#ExecActTime] rules}/></td></tr>
-                    </table></xml>}></dyn></xml>
-
-            in  <xml>
-              <div class={cl (B.modal :: B.fade :: [])} id={change_rules_id} role="dialog">
-                <div class={B.modal_dialog} role="document">
-                  <div class={B.modal_content}>
-                    <div class={B.modal_header}>
-                      <button class={B.close} data-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span></button>
-                        <h4 class={B.modal_title}>Change Rules</h4>
-                    </div>
-                    <form>
-                      <div class={B.modal_body}>
-                        {rules_form {}}
-                      </div>
-                      <div class={B.modal_footer}>
-                        <button class={cl (B.btn :: B.btn_default :: [])}
-                                data-dismiss="modal">Close</button>
-                        <submit class={cl (B.btn :: B.btn_primary :: [])}
-                                action={submit_new_rules}
-                                data-dismiss="modal"
-                                value="Change it!"/>
-            </div></form></div></div></div></xml>
-            end
-
-        fun default_view {} : xbody =
-            <xml>
-              <dyn signal={
-                players <- signal players_s;
-                rule_set <- signal rule_s;
-                return <xml>
-                  <table>
-                    {case rule_set of
-                         None => <xml></xml>
-                       | Some rule_set => <xml>
-                         <tr><th>{[(if rule_set.KillPlayer
-                                    then "Player killed"
-                                    else "Turn skipped") ^ " as punishment."]}</th></tr>
-                         {if not rule_set.TimedGame
-                          then <xml><tr><th>Game untimed</th></tr></xml>
-                          else <xml>
-                            <tr><th>Chancellor Nomination</th>
-                              <td>{[rule_set.ChanNomTime]}</td></tr>
-                            <tr><th>Governmant Vote</th>
-                              <td>{[rule_set.GovVoteTime]}</td></tr>
-                            <tr><th>President Discard</th>
-                              <td>{[rule_set.PresDisTime]}</td></tr>
-                            <tr><th>Chancellor Enaction</th>
-                              <td>{[rule_set.ChanEnaTime]}</td></tr>
-                            <tr><th>Executive Action</th>
-                              <td>{[rule_set.ExecActTime]}</td></tr>
-                          </xml>}
-                       </xml>}
-                    {if rt.OwnedBy <> pt.Player &&
-                        not (List.exists (fn m => pt.Player = m.Player) mods)
-                 then <xml></xml>
-                     else <xml>
-                       <tr><td>
-                     <button class={cl (B.btn :: B.btn_primary :: [])}
-                             data-toggle="modal"
-                             data-target={"#" ^ show change_rules_id}>Change Rules</button>
-                       </td></tr>
-                       {if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
-                        then <xml></xml>
-                        else <xml><tr><td>
-                          <button class={cl (B.btn :: B.btn_default :: [])}
-                                  onclick={fn _ => rpc (start_game {})}>Start Game
-                            </button></td></tr></xml>}</xml>}
-                    {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>)
-                               players}
-                    </table></xml>}></dyn>
-              {change_rules_view {}}</xml>
-
-        fun display_vote_state {} : transaction xbody =
-            vote_s <- get vote_s;
-            case vote_s of
-                None => return <xml>No votes yet.</xml>
-              | Some _ => return <xml>Votes here</xml>
 
         fun app_vote (vn : vote_notif)
                      (vl_o : option (list vote_notif))
@@ -236,16 +214,87 @@ fun game_view_and_client_handler (view_room : transaction page)
             now <- now;
             get_set msg_s (fn msg_s => { Msg = msg, Time = now } :: msg_s)
 
+        fun display_vote_state {} : transaction xbody =
+            vote_s <- get vote_s;
+            case vote_s of
+                None => return <xml>No votes yet.</xml>
+              | Some _ => return <xml>Votes here</xml>
+
+
+            fun start_game {} : transaction {} =
+                room_t <- oneRow1 (SELECT *
+                                   FROM room
+                                   WHERE room.Room = {[gt.Room]});
+                if room_t.InGame
+                then return {}
+                else
+                    players <- queryL1 (SELECT *
+                                        FROM player_in_game
+                                        WHERE player_in_game.Room = {[gt.Room]}
+                                          AND player_in_game.Game = {[gt.Game]}
+                                          AND player_in_game.Watching = FALSE);
+                    if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
+                    then return {}
+                    else
+                        dml (UPDATE room
+                             SET InGame = TRUE
+                             WHERE Room = {[gt.Room]});
+
+                        starting_players <- get_starting_players gt;
+
+                        update_last_action gt;
+                        send_public_message gt (PublicGameState
+                                                    { CurrentStep = ChancellorSelectStep
+                                                    , CurrentTurn =
+                                                      { President       = 1
+                                                      , Chancellor      = 0
+                                                      , FascistPolicies = 0 (* TODO Alt rules *)
+                                                      , LiberalPolicies = 0 (* TODO Alt rules *)
+                                                      , RejectCount     = 0
+                                                      }
+                                                    , GameHistory = []
+                                                    , Players     = starting_players
+                                               })
+
+
+
+        fun default_view {} : transaction xbody =
+            return <xml><dyn signal={
+            players <- signal players_s;
+            return <xml>
+              <table>
+                {if rt.OwnedBy <> pt.Player &&
+                    not (List.exists (fn m => pt.Player = m.Player) mods)
+                 then <xml></xml>
+                 else <xml>
+                   <tr><td>
+                   {widget.Button}
+                   </td></tr>
+                   {if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
+                    then <xml></xml>
+                    else <xml><tr><td>
+                      <button class={cl (B.btn :: B.btn_default :: [])}
+                                        onclick={fn _ => rpc (start_game {})}>Start Game
+                      </button></td></tr></xml>}</xml>}
+                  {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>) players}
+                </table></xml>}/>
+      {widget.Modal}</xml>
+
         fun public_rsp_handler (rsp : public_response) : transaction {} =
             case rsp of
                 PlayersOnTable ps => set players_s ps
               | NewPlayer p => get_set players_s (fn ps => p :: ps)
               | PlayerLeaves i => get_set players_s (List.filter (fn p => p.InGameId <> i))
-              (*| Chat c =>
-                update_source_at_2 [#PublicGameState]
-                                   [#ChatHistory]
-                                   game_s (fn hist => c :: hist)*)
-              | RuleSet r => set rule_s (Some r)
+              | RuleSet rules =>
+                let val s = widget.Sources
+                in  set s.KillPlayer rules.KillPlayer;
+                    set s.TimedGame rules.TimedGame;
+                    set s.ChanNomTime (Some rules.ChanNomTime);
+                    set s.GovVoteTime (Some rules.GovVoteTime);
+                    set s.PresDisTime (Some rules.PresDisTime);
+                    set s.ChanEnaTime (Some rules.ChanEnaTime);
+                    set s.ExecActTime (Some rules.ExecActTime)
+                end
               | PublicGameState pgs =>
                 set page_s (<xml>{List.mapX (fn p =>
                                                 <xml>Un:{[p.Username]}
@@ -259,11 +308,11 @@ fun game_view_and_client_handler (view_room : transaction page)
                 let val pgs = game.PublicGameState
                     val previous_turn = pgs.CurrentTurn
                 in  set game_s (game -- #PublicGameState
-                                 ++ { PublicGameState =
-                                      pgs -- #CurrentTurn -- #GameHistory
-                                          ++ { CurrentTurn = new_turn
-                                             , GameHistory =
-                                               previous_turn :: pgs.GameHistory }})
+                                     ++ { PublicGameState =
+                                          pgs -- #CurrentTurn -- #GameHistory
+                                              ++ { CurrentTurn = new_turn
+                                                 , GameHistory =
+                                                   previous_turn :: pgs.GameHistory }})
                 end
               | TurnRole r => return {}
               | ChancellorChosen c =>
@@ -326,17 +375,17 @@ fun game_view_and_client_handler (view_room : transaction page)
                                |   RemGameCap   => None)
 
             in  case rsp of
-                         VoterRsp r =>      voter_handler r
+                    VoterRsp r =>      voter_handler r
                   |  PresidentRsp r =>  president_handler r
                   | ChancellorRsp r => chancellor_handler r
                   |    FascistRsp r =>    fascist_handler r
                   |        ModRsp r =>        mod_handler r
             end
-
-    in  return { View =
-                 set page_s (default_view {});
-                 return (signal page_s)
-               , Handler = fn msg => case msg of
-                                         PublicRsp  rsp =>  public_rsp_handler rsp
-                                       | PrivateRsp rsp => private_rsp_handler rsp }
+    in  case m of
+            PublicRsp  rsp =>  public_rsp_handler rsp
+          | PrivateRsp rsp => private_rsp_handler rsp
     end
+
+(*
+
+*)

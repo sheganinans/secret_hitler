@@ -6,6 +6,7 @@ open Tables
 open Utils
 
 fun on_view_room_load (pt : player_table) (gt : game_table) : transaction {} =
+    debug "ovrl";
     rule_set <- oneRow1 (SELECT *
                          FROM rule_set
                          WHERE rule_set.Room = {[gt.Room]}
@@ -16,10 +17,17 @@ fun on_view_room_load (pt : player_table) (gt : game_table) : transaction {} =
                      WHERE player_in_game.Room = {[gt.Room]}
                        AND player_in_game.Game = {[gt.Game]}
                        AND player_in_game.Player = {[pt.Player]});
-
     room_table <- oneRow1 (SELECT *
                            FROM room
                            WHERE room.Room = {[gt.Room]});
+
+    curr_players <- get_players_playing gt;
+
+    mapM_ (fn m => send chan.Chan (PublicRsp m))
+              (PlayersOnTable curr_players          ::
+               RuleSet (rule_set -- #Room -- #Game) ::
+               []);
+
     if not room_table.InGame
     then
         curr_players <- get_players_playing gt;
@@ -225,17 +233,17 @@ and main_menu_button {} : xbody = <xml>
           style="width:100%"
           onclick={fn _ => redirect (url (main_menu {}))}>Main Menu</button></xml>
 
-and basic_button (page : transaction page) (v : string) : xbody =
+and redir_button (page : transaction page) (v : string) : xbody =
     <xml><button class={cl (B.btn :: B.btn_default :: [])}
                 onclick={fn _ => redirect (url (page))}>{[v]}</button></xml>
 
 and main_menu_body {} : xbody =
     <xml>
       <div class={B.btn_group_vertical} role="group" style="width:100%">
-        {basic_button (view_public_rooms {}) "View Public Rooms"}
-        {basic_button (new_game          {}) "New Game"}
-        {basic_button (view_your_rooms   {}) "View Your Rooms"}
-        {basic_button (new_room          {}) "New Room"}
+        {redir_button (view_public_rooms {}) "View Public Rooms"}
+        {redir_button (new_game          {}) "New Game"}
+        {redir_button (view_your_rooms   {}) "View Your Rooms"}
+        {redir_button (new_room          {}) "New Room"}
     </div></xml>
 
 and new_room {} : transaction page =
@@ -316,7 +324,7 @@ and new_game {} : transaction page =
     return <xml><head>{Head.std_head}</head><body>
       <div class={B.btn_group_vertical} role="group" style="width:100%">
         {main_menu_button {}}
-        {List.mapX (fn r => <xml> {basic_button (new_game_page r.Room) r.Nam}</xml>)
+        {List.mapX (fn r => <xml> {redir_button (new_game_page r.Room) r.Nam}</xml>)
                    (List.filter (fn r => not r.InGame) room_list)}
     </div></body></xml>
 
@@ -329,7 +337,7 @@ and view_your_rooms {} : transaction page =
           <div class={B.btn_group_vertical} role="group" style="width:100%">
             {main_menu_button {}}
             (* TODO truncate long names *)
-            {List.mapX (fn r => <xml>{basic_button (view_room r.Room) r.Nam}</xml>) rl}
+            {List.mapX (fn r => <xml>{redir_button (view_room r.Room) r.Nam}</xml>) rl}
         </div></body></xml>
 
 and view_public_rooms {} : transaction page =
@@ -337,16 +345,16 @@ and view_public_rooms {} : transaction page =
     return <xml><head>{Head.std_head}</head><body>
       <div class={B.btn_group_vertical} role="group" style="width:100%">
         {main_menu_button {}}
-        {List.mapX (fn r => <xml>{basic_button (join_room r.Room) r.Nam}</xml>) rl}
+        {List.mapX (fn r => <xml>{redir_button (join_room r.Room) r.Nam}</xml>) rl}
     </div></body></xml>
 
 and view_invite (room_id : int) : transaction page =
     (pt, rt) <- player_in_room_exn room_id;
     return <xml><head>{Head.std_head}</head><body><table>
-      <tr><th>{basic_button (view_room room_id) ("Back to " ^ rt.Nam)}</th></tr>
+      <tr><th>{redir_button (view_room room_id) ("Back to " ^ rt.Nam)}</th></tr>
       <tr><th>Link:</th><td>
-        <a link={view_room room_id}>
-          {[Consts.website_url]}{[show (url (view_room room_id))]}</a></td></tr>
+        {redir_button (view_room room_id)
+                      (Consts.website_url ^ show (url (view_room room_id)))}</td></tr>
       {case rt.Pass of None      => <xml></xml> : xtable
                      | Some pass => <xml><tr><th>Pass:</th><td>{[pass]}</td></tr></xml>}
     </table></body></xml>
@@ -456,23 +464,26 @@ and view_room (room_id : int) : transaction page =
                          WHERE Room = {[rt.Room]}
                            AND Game = {[rt.CurrentGame]}
                            AND Player = {[pt.Player]});
+                    (page_s : source xbody) <- source (<xml></xml>);
+                    let val handler = Game_view.handler pt rt gt page_s
+                    in
+                        return <xml><head>
+                          {Head.std_head}
+                          <script code={let fun rsp_loop {} =
+                                                msg <- recv chan;
+                                                handler msg;
+                                                rsp_loop {}
+                                        in spawn (rsp_loop {}) end}/></head>
 
-                    gv_ch <- Game_view.game_view_and_client_handler (view_room room_id) pt rt gt;
-
-                    return <xml><head>
-                      {Head.std_head}
-                      <script code={let fun rsp_loop {} =
-                                            msg <- recv chan;
-                                            gv_ch.Handler msg;
-                                            rsp_loop {}
-                                    in spawn (rsp_loop {}) end}/></head>
-
-                      <body onload={rpc (on_view_room_load pt gt)}>
-                        <table>
-                          <tr><td>{basic_button (view_invite room_id) "View Invite"}</td></tr>
-                          <tr><td><active code={v <- gv_ch.View;
-                                                return (<xml><dyn signal={v}/></xml>)}/>
-                      </td></tr></table></body></xml>
+                          <body onload={rpc (on_view_room_load pt gt)}>
+                            <table style="width:100%">
+                              <tr><td>
+                                <div class={B.btn_group_vertical} role="group" style="width:100%">
+                                  {main_menu_button {}}
+                                  {redir_button (view_invite room_id) "View Invite"}
+                              </div></td></tr>
+                              <tr><td><dyn signal={signal page_s}/></td></tr></table></body></xml>
+                    end
         end
 
 and get_all_un_and_id_in_room (room_id : int) : transaction (list player_id_and_username) =

@@ -1,5 +1,8 @@
 open Types
 
+fun z_if_n (x : option float) : float = case x of
+                                            None => 0.
+                                          | Some x => x
 fun cl (l : list css_class) : css_class = List.foldr (fn c s => classes c s) null l
 
 fun mapM_ [a] [b] (f : a -> transaction b) (x : list a) : transaction {} =
