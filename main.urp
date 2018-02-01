@@ -32,6 +32,7 @@ head
 auth
 server_response
 eval_capability
+rule_changing_widget
 game_view
 frontend
 game_loop
