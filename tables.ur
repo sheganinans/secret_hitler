@@ -343,6 +343,9 @@ fun get_player_from_in_game_id (rt : room_table) (pid : int) : transaction { Pla
                AND player_in_game.Game = {[rt.CurrentGame]}
                AND player_in_game.InGameId = {[pid]})
 
+fun get_mods (rt : room_table) : transaction (list room_player_relation) =
+    queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]})
+
 fun update_last_action (gt : game_table) =
     now <- now;
     dml (UPDATE game

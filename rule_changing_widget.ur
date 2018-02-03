@@ -3,18 +3,20 @@ structure B = Bootstrap3
 open Tables
 open Types
 
-fun rule_changing_widget (rt : room_table)
-                         (gt : game_table)
-    : transaction { Modal : xbody
-                  , Button: xbody
-                  , Sources : { KillPlayer  : source bool
-                              , TimedGame   : source bool
-                              , ChanNomTime : source (option float)
-                              , GovVoteTime : source (option float)
-                              , PresDisTime : source (option float)
-                              , ChanEnaTime : source (option float)
-                              , ExecActTime : source (option float)
+fun rule_changing_widget (pt : player_table)
+                         (rt :   room_table)
+                         (gt :   game_table)
+    : transaction { Widget : transaction xbody
+                  , Sources : transaction { KillPlayer  : source bool
+                                          , TimedGame   : source bool
+                                          , ChanNomTime : source (option float)
+                                          , GovVoteTime : source (option float)
+                                          , PresDisTime : source (option float)
+                                          , ChanEnaTime : source (option float)
+                                          , ExecActTime : source (option float)
                   }} =
+
+    mods <- get_mods rt;
 
     kill_p <- source False;
     timed_g <- source False;
@@ -33,12 +35,30 @@ fun rule_changing_widget (rt : room_table)
             set_rules rt r;
             send_public_message gt (RuleSet r)
 
+        fun get_rule_set {} =
+            oneRow1 (SELECT *
+                     FROM rule_set
+                     WHERE rule_set.Room = {[gt.Room]}
+                       AND rule_set.Game = {[gt.Game]})
+
+        fun reset_rules {} =
+            rules <- rpc (get_rule_set {});
+            set kill_p rules.KillPlayer;
+            set timed_g rules.TimedGame;
+            set cn_time (Some rules.ChanNomTime);
+            set gv_time (Some rules.GovVoteTime);
+            set pd_time (Some rules.PresDisTime);
+            set ce_time (Some rules.ChanEnaTime);
+            set ea_time (Some rules.ExecActTime)
+
         fun change_rules_view {} : xbody = <xml>
           <div class={cl (B.modal :: B.fade :: [])} id={change_rules_id} role="dialog">
             <div class={B.modal_dialog} role="document">
               <div class={B.modal_content}>
                 <div class={B.modal_header}>
-                  <button class={B.close} data-dismiss="modal" aria-label="Close">
+                  <button class={B.close}
+                          onclick={fn _ => reset_rules {}}
+                          data-dismiss="modal" aria-label="Close">
                     <span aria-hidden="true">&times;</span></button>
                     <h4 class={B.modal_title}>Change Rules</h4>
                 </div>
@@ -62,6 +82,7 @@ fun rule_changing_widget (rt : room_table)
                 </div>
                 <div class={B.modal_footer}>
                   <button class={cl (B.btn :: B.btn_default :: [])}
+                          onclick={fn _ => reset_rules {} }
                           data-dismiss="modal">Close</button>
                   <button class={cl (B.btn :: B.btn_primary :: [])}
                           onclick={fn _ =>
@@ -116,17 +137,20 @@ fun rule_changing_widget (rt : room_table)
                          <td>{[ea_time]}</td></tr>
                        </xml>}</table></xml>}/></xml>
 
-    in  return { Modal = <xml></xml>
-               , Button = <xml><button class={cl (B.btn :: B.btn_primary :: [])}
-                                       data-toggle="modal"
-                                       data-target={"#" ^ show change_rules_id}>Change Rules
-                      </button></xml>
-               , Sources = { KillPlayer  = kill_p
-                           , TimedGame   = timed_g
-                           , ChanNomTime = cn_time
-                           , GovVoteTime = gv_time
-                           , PresDisTime = pd_time
-                           , ChanEnaTime = ce_time
-                           , ExecActTime = ea_time
-                           }}
+    in  return { Widget = return <xml>
+                 {if rt.OwnedBy <> pt.Player &&
+                     not (List.exists (fn m => pt.Player = m.Player) mods)
+                  then <xml></xml>
+                  else <xml><button class={cl (B.btn :: B.btn_primary :: [])}
+                                    data-toggle="modal"
+                                    data-target={"#" ^ show change_rules_id}>Change Rules
+                            </button></xml>}{rule_view {}}{change_rules_view {}}</xml>
+               , Sources = return { KillPlayer  = kill_p
+                                  , TimedGame   = timed_g
+                                  , ChanNomTime = cn_time
+                                  , GovVoteTime = gv_time
+                                  , PresDisTime = pd_time
+                                  , ChanEnaTime = ce_time
+                                  , ExecActTime = ea_time
+               }}
     end

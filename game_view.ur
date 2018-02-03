@@ -14,28 +14,28 @@ structure A = Auth.AuthSystem(struct
                                       Auth.check_role_closure (fn _ => <xml></xml>) r
                               end)
 
-fun get_mods (i : int) : transaction (list room_player_relation) =
-    queryL1 (SELECT * FROM mod WHERE mod.Room = {[i]})
-
 fun get_curr_game (rt : room_table) =
     oneRow1 (SELECT *
              FROM game
              WHERE game.Room = {[rt.Room]}
                AND game.Game = {[rt.CurrentGame]})
 
-fun get_mods (rt : room_table) : transaction (list room_player_relation) =
-    queryL1 (SELECT * FROM mod WHERE mod.Room = {[rt.Room]})
+fun game_view (pt : player_table)
+              (rt :   room_table)
+              (gt :   game_table)
+              (p_f : signal xbody
+                     -> transaction (Protocol.in_game_response -> transaction {})
+                     -> transaction page)
+    : transaction page =
+    page_s <- source (<xml></xml>);
 
+    rule_changing_w <- Rule_changing_widget.rule_changing_widget pt rt gt;
 
-fun handler (pt : player_table)
-            (rt :   room_table)
-            (gt :   game_table)
-            (page_s : source xbody)
-            (m : Protocol.in_game_response) : transaction {} =
+    rule_changing_widget <- rule_changing_w.Widget;
 
-    rule_change_w <- Rule_changing_widget.rule_changing_widget rt gt;
+    rule_sources <- rule_changing_w.Sources;
 
-    mods <- rpc (get_mods rt);
+    mods <- get_mods rt;
 
     players_s <- source [];
 
@@ -64,13 +64,71 @@ fun handler (pt : player_table)
 
     role_s <- source Voter;
 
-    let val msg_loop =
-            let fun go {} =
-                now <- now;
-                get_set msg_s (List.filter (fn m => addSeconds m.Time 15 < now));
-                sleep 3;
-                go {}
-            in spawn (go {}) end
+    p_f (signal page_s)
+        (let val msg_loop =
+                 let fun go {} =
+                         now <- now;
+                         get_set msg_s (List.filter (fn m => addSeconds m.Time 15 < now));
+                         sleep 3;
+                         go {}
+                 in spawn (go {}) end
+
+             fun display_vote_state {} : transaction xbody =
+                 vote_s <- get vote_s;
+                 case vote_s of
+                     None => return <xml>No votes yet.</xml>
+                   | Some _ => return <xml>Votes here</xml>
+
+             fun start_game {} : transaction {} =
+                 room_t <- oneRow1 (SELECT *
+                                    FROM room
+                                    WHERE room.Room = {[gt.Room]});
+                 if room_t.InGame
+                 then return {}
+                 else
+                     players <- queryL1 (SELECT *
+                                         FROM player_in_game
+                                         WHERE player_in_game.Room = {[gt.Room]}
+                                           AND player_in_game.Game = {[gt.Game]}
+                                           AND player_in_game.Watching = FALSE);
+                     if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
+                     then return {}
+                     else
+                         dml (UPDATE room
+                              SET InGame = TRUE
+                              WHERE Room = {[gt.Room]});
+
+                         starting_players <- get_starting_players gt;
+
+                         update_last_action gt;
+                         send_public_message gt (PublicGameState
+                                                     { CurrentStep = ChancellorSelectStep
+                                                     , CurrentTurn =
+                                                       { President       = 1
+                                                       , Chancellor      = 0
+                                                       , FascistPolicies = 0 (* TODO Alt rules *)
+                                                       , LiberalPolicies = 0 (* TODO Alt rules *)
+                                                       , RejectCount     = 0
+                                                       }
+                                                     , GameHistory = []
+                                                     , Players     = starting_players
+                                                })
+
+             fun default_view {} : xbody =
+                 <xml>
+                   {rule_changing_widget}
+                   <dyn signal={
+                     players <- signal players_s;
+                     return <xml>
+                       {if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
+                        then <xml></xml>
+                        else <xml>
+                          <button class={cl (B.btn :: B.btn_default :: [])}
+                                  onclick={fn _ => rpc (start_game {})}>Start Game
+                          </button></xml>}<br/>
+                       {List.mapX (fn p => <xml>{[p.Username]}<br/></xml>) players}
+                 </xml>}></dyn>
+                   </xml>
 
         fun app_vote (vn : vote_notif)
                      (vl_o : option (list vote_notif))
@@ -87,79 +145,13 @@ fun handler (pt : player_table)
             now <- now;
             get_set msg_s (fn msg_s => { Msg = msg, Time = now } :: msg_s)
 
-        fun display_vote_state {} : transaction xbody =
-            vote_s <- get vote_s;
-            case vote_s of
-                None => return <xml>No votes yet.</xml>
-              | Some _ => return <xml>Votes here</xml>
-
-
-            fun start_game {} : transaction {} =
-                room_t <- oneRow1 (SELECT *
-                                   FROM room
-                                   WHERE room.Room = {[gt.Room]});
-                if room_t.InGame
-                then return {}
-                else
-                    players <- queryL1 (SELECT *
-                                        FROM player_in_game
-                                        WHERE player_in_game.Room = {[gt.Room]}
-                                          AND player_in_game.Game = {[gt.Game]}
-                                          AND player_in_game.Watching = FALSE);
-                    if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
-                    then return {}
-                    else
-                        dml (UPDATE room
-                             SET InGame = TRUE
-                             WHERE Room = {[gt.Room]});
-
-                        starting_players <- get_starting_players gt;
-
-                        update_last_action gt;
-                        send_public_message gt (PublicGameState
-                                                    { CurrentStep = ChancellorSelectStep
-                                                    , CurrentTurn =
-                                                      { President       = 1
-                                                      , Chancellor      = 0
-                                                      , FascistPolicies = 0 (* TODO Alt rules *)
-                                                      , LiberalPolicies = 0 (* TODO Alt rules *)
-                                                      , RejectCount     = 0
-                                                      }
-                                                    , GameHistory = []
-                                                    , Players     = starting_players
-                                               })
-
-
-
-        fun default_view {} : transaction xbody =
-            return <xml><dyn signal={
-            players <- signal players_s;
-            return <xml>
-              <table>
-                {if rt.OwnedBy <> pt.Player &&
-                    not (List.exists (fn m => pt.Player = m.Player) mods)
-                 then <xml></xml>
-                 else <xml>
-                   <tr><td>
-                   {rule_change_w.Button}
-                   </td></tr>
-                   {if List.length players < 0 || List.length players > 10 (* TODO: 0 *)
-                    then <xml></xml>
-                    else <xml><tr><td>
-                      <button class={cl (B.btn :: B.btn_default :: [])}
-                                        onclick={fn _ => rpc (start_game {})}>Start Game
-                      </button></td></tr></xml>}</xml>}
-                  {List.mapX (fn p => <xml><tr><td>{[p.Username]}</td></tr></xml>) players}
-                </table></xml>}></dyn>
-              {rule_change_w.Modal}</xml>
-
         fun public_rsp_handler (rsp : public_response) : transaction {} =
             case rsp of
                 PlayersOnTable ps => set players_s ps
               | NewPlayer p => get_set players_s (fn ps => p :: ps)
               | PlayerLeaves i => get_set players_s (List.filter (fn p => p.InGameId <> i))
               | RuleSet rules =>
-                let val s = rule_change_w.Sources
+                let val s = rule_sources
                 in  set s.KillPlayer rules.KillPlayer;
                     set s.TimedGame rules.TimedGame;
                     set s.ChanNomTime (Some rules.ChanNomTime);
@@ -254,11 +246,8 @@ fun handler (pt : player_table)
                   |    FascistRsp r =>    fascist_handler r
                   |        ModRsp r =>        mod_handler r
             end
-    in  case m of
-            PublicRsp  rsp =>  public_rsp_handler rsp
-          | PrivateRsp rsp => private_rsp_handler rsp
-    end
-
-(*
-
-*)
+    in  set page_s (default_view {});
+        return (fn m => case m of
+                            PublicRsp  rsp =>  public_rsp_handler rsp
+                          | PrivateRsp rsp => private_rsp_handler rsp)
+    end)
