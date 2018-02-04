@@ -415,9 +415,13 @@ and join_game (room_id : int) : transaction page =
         else return <xml><head>{Head.std_head}</head><body>
           <table>
             <tr><td><form>
-              <submit value="Playing"  action={submit_join_game  True}/></form></td></tr>
+              <submit value="Playing"
+                      class={cl (B.btn :: B.btn_primary :: [])}
+                      action={submit_join_game  True}/></form></td></tr>
             <tr><td><form>
-              <submit value="Watching" action={submit_join_game False}/></form></td></tr>
+              <submit value="Watching"
+                      class={cl (B.btn :: B.btn_default :: [])}
+                      action={submit_join_game False}/></form></td></tr>
         </table></body></xml>
     end
 

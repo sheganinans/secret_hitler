@@ -157,15 +157,6 @@ fun game_view (pt : player_table)
               | NewPlayer p => get_set players_s (fn ps => p :: ps)
               | PlayerLeaves i => get_set players_s (List.filter (fn p => p.InGameId <> i))
               | RuleSet rules => set rules_s rules
-                (*let val s = rule_sources
-                in  set s.KillPlayer rules.KillPlayer;
-                    set s.TimedGame rules.TimedGame;
-                    set s.ChanNomTime (Some rules.ChanNomTime);
-                    set s.GovVoteTime (Some rules.GovVoteTime);
-                    set s.PresDisTime (Some rules.PresDisTime);
-                    set s.ChanEnaTime (Some rules.ChanEnaTime);
-                    set s.ExecActTime (Some rules.ExecActTime)
-                end*)
               | PublicGameState pgs =>
                 set page_s (<xml>{List.mapX (fn p =>
                                                 <xml>Un:{[p.Username]}

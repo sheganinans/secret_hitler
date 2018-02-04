@@ -3,7 +3,6 @@ structure B = Bootstrap3
 open Tables
 open Types
 
-
 fun make (pt : player_table)
          (rt :   room_table)
          (gt :   game_table)
@@ -131,6 +130,9 @@ fun make (pt : player_table)
                      not (List.exists (fn m => pt.Player = m.Player) mods)
                   then <xml></xml>
                   else <xml><button class={cl (B.btn :: B.btn_primary :: [])}
+                                    onclick={fn _ =>
+                                                rs <- get ss;
+                                                update_rules rs}
                                     data-toggle="modal"
                                     data-target={"#" ^ show change_rules_id}>Change Rules
                             </button></xml>}</xml>
