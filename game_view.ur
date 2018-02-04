@@ -29,11 +29,16 @@ fun game_view (pt : player_table)
     : transaction page =
     page_s <- source (<xml></xml>);
 
-    rule_changing_w <- Rule_changing_widget.rule_changing_widget pt rt gt;
+    rules_s <- source { KillPlayer  = False
+                      , TimedGame   = False
+                      , ChanNomTime = 0.
+                      , GovVoteTime = 0.
+                      , PresDisTime = 0.
+                      , ChanEnaTime = 0.
+                      , ExecActTime = 0.
+                      };
 
-    rule_changing_widget <- rule_changing_w.Widget;
-
-    rule_sources <- rule_changing_w.Sources;
+    rcw <- Rule_changing_widget.make pt rt gt rules_s;
 
     mods <- get_mods rt;
 
@@ -116,7 +121,8 @@ fun game_view (pt : player_table)
 
              fun default_view {} : xbody =
                  <xml>
-                   {rule_changing_widget}
+                   {rcw.View}
+                   {rcw.Button}
                    <dyn signal={
                      players <- signal players_s;
                      return <xml>
@@ -128,7 +134,7 @@ fun game_view (pt : player_table)
                           </button></xml>}<br/>
                        {List.mapX (fn p => <xml>{[p.Username]}<br/></xml>) players}
                  </xml>}></dyn>
-                   </xml>
+                   {rcw.Modal}</xml>
 
         fun app_vote (vn : vote_notif)
                      (vl_o : option (list vote_notif))
@@ -150,8 +156,8 @@ fun game_view (pt : player_table)
                 PlayersOnTable ps => set players_s ps
               | NewPlayer p => get_set players_s (fn ps => p :: ps)
               | PlayerLeaves i => get_set players_s (List.filter (fn p => p.InGameId <> i))
-              | RuleSet rules =>
-                let val s = rule_sources
+              | RuleSet rules => set rules_s rules
+                (*let val s = rule_sources
                 in  set s.KillPlayer rules.KillPlayer;
                     set s.TimedGame rules.TimedGame;
                     set s.ChanNomTime (Some rules.ChanNomTime);
@@ -159,7 +165,7 @@ fun game_view (pt : player_table)
                     set s.PresDisTime (Some rules.PresDisTime);
                     set s.ChanEnaTime (Some rules.ChanEnaTime);
                     set s.ExecActTime (Some rules.ExecActTime)
-                end
+                end*)
               | PublicGameState pgs =>
                 set page_s (<xml>{List.mapX (fn p =>
                                                 <xml>Un:{[p.Username]}

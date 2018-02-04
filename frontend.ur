@@ -465,7 +465,6 @@ and view_room (room_id : int) : transaction page =
                            AND Game = {[rt.CurrentGame]}
                            AND Player = {[pt.Player]});
                     (page_s : source xbody) <- source (<xml></xml>);
-                    (*handler <- Game_view.handler pt rt gt page_s;*)
                     Game_view.game_view pt rt gt
                         (fn page_s init_handler =>
                                   return <xml><head>
